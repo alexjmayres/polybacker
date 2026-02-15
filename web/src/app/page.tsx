@@ -5,8 +5,11 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { Header } from "@/components/Header";
 import { TabNav } from "@/components/TabNav";
+import { SummaryPanel } from "@/components/summary/SummaryPanel";
 import { CopyPanel } from "@/components/copy/CopyPanel";
 import { ArbPanel } from "@/components/arb/ArbPanel";
+import { PositionsPanel } from "@/components/positions/PositionsPanel";
+import { FundPanel } from "@/components/fund/FundPanel";
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -89,7 +92,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
           {/* Terminal body */}
           <div className="p-3 sm:p-4 space-y-1">
             <TerminalLine delay={200}>
-              polybacker v0.1.0 -- trading terminal
+              polybacker v0.2.0 -- trading terminal
             </TerminalLine>
             <TerminalLine delay={600}>
               init copy_trading_engine... OK
@@ -98,13 +101,19 @@ function Landing({ onEnter }: { onEnter: () => void }) {
               init arbitrage_scanner... OK
             </TerminalLine>
             <TerminalLine delay={1400}>
+              init position_tracker... OK
+            </TerminalLine>
+            <TerminalLine delay={1800}>
+              init fund_manager... OK
+            </TerminalLine>
+            <TerminalLine delay={2200}>
               connecting to polygon mainnet... OK
             </TerminalLine>
-            <TerminalLine delay={1800}>all systems nominal</TerminalLine>
+            <TerminalLine delay={2600}>all systems nominal</TerminalLine>
 
             {!isConnected && (
               <div className="mt-3 pt-3 border-t border-[var(--panel-border)]">
-                <TerminalLine delay={2200}>
+                <TerminalLine delay={3000}>
                   awaiting wallet authentication_
                 </TerminalLine>
               </div>
@@ -142,7 +151,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
         </div>
 
         {/* Feature cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 max-w-3xl w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 max-w-4xl w-full">
           <div className="glass rounded-none p-4 sm:p-5 slide-up">
             <div className="text-[var(--cyan)] pixel text-[9px] sm:text-[10px] mb-2 sm:mb-3">
               [01]
@@ -151,7 +160,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
               Copy Trading
             </h3>
             <p className="text-[10px] sm:text-xs text-[var(--green-dim)] opacity-70 leading-relaxed">
-              Follow top traders and automatically mirror their positions
+              Follow top traders with per-wallet customization
             </p>
           </div>
           <div
@@ -165,7 +174,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
               Arbitrage
             </h3>
             <p className="text-[10px] sm:text-xs text-[var(--green-dim)] opacity-70 leading-relaxed">
-              Scan for pricing inefficiencies and capture risk-free profit
+              Scan for pricing inefficiencies and capture profit
             </p>
           </div>
           <div
@@ -176,10 +185,24 @@ function Landing({ onEnter }: { onEnter: () => void }) {
               [03]
             </div>
             <h3 className="text-[var(--green)] font-bold mb-1 sm:mb-2 uppercase text-xs sm:text-sm tracking-wider">
-              Non-Custodial
+              Positions
             </h3>
             <p className="text-[10px] sm:text-xs text-[var(--green-dim)] opacity-70 leading-relaxed">
-              Sign in with your wallet. Your keys, your control.
+              Track open positions with live P&L in real-time
+            </p>
+          </div>
+          <div
+            className="glass rounded-none p-4 sm:p-5 slide-up"
+            style={{ animationDelay: "0.3s" }}
+          >
+            <div className="text-[var(--green)] pixel text-[9px] sm:text-[10px] mb-2 sm:mb-3">
+              [04]
+            </div>
+            <h3 className="text-[var(--green)] font-bold mb-1 sm:mb-2 uppercase text-xs sm:text-sm tracking-wider">
+              STF Funds
+            </h3>
+            <p className="text-[10px] sm:text-xs text-[var(--green-dim)] opacity-70 leading-relaxed">
+              Invest in curated funds of top-performing traders
             </p>
           </div>
         </div>
@@ -196,7 +219,9 @@ function Landing({ onEnter }: { onEnter: () => void }) {
 /* ──────────────────────── dashboard ─────────────────────── */
 
 function Dashboard({ onExit }: { onExit: () => void }) {
-  const [activeTab, setActiveTab] = useState<"copy" | "arb">("copy");
+  const [activeTab, setActiveTab] = useState<
+    "summary" | "copy" | "arb" | "positions" | "fund"
+  >("summary");
 
   return (
     <div className="min-h-screen">
@@ -204,7 +229,11 @@ function Dashboard({ onExit }: { onExit: () => void }) {
         <Header onLogoClick={onExit} />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
-          {activeTab === "copy" ? <CopyPanel /> : <ArbPanel />}
+          {activeTab === "summary" && <SummaryPanel />}
+          {activeTab === "copy" && <CopyPanel />}
+          {activeTab === "arb" && <ArbPanel />}
+          {activeTab === "positions" && <PositionsPanel />}
+          {activeTab === "fund" && <FundPanel />}
         </main>
       </div>
     </div>

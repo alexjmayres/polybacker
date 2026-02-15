@@ -1,8 +1,8 @@
 """Flask API server for the Polybacker dashboard.
 
 Provides REST endpoints and WebSocket events for real-time monitoring
-of copy trading and arbitrage bots. Supports SIWE authentication for
-multi-user access.
+of copy trading, arbitrage, position tracking, and STF fund management.
+Supports SIWE authentication with wallet whitelist gating.
 """
 
 from __future__ import annotations
@@ -65,14 +65,20 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     if owner_address:
         db.create_or_get_user(db_path, owner_address, role="owner")
         db.claim_legacy_data(db_path, owner_address)
+        # Auto-whitelist the owner
+        db.add_to_whitelist(db_path, owner_address, added_by="system")
         logger.info(f"Owner address: {owner_address}")
 
     app.config["settings"] = settings
     app.config["owner_address"] = owner_address
     app.config["copy_trader"] = None
     app.config["arb_scanner"] = None
+    app.config["fund_manager"] = None
+    app.config["position_tracker"] = None
     app.config["copy_thread"] = None
     app.config["arb_thread"] = None
+    app.config["fund_thread"] = None
+    app.config["position_thread"] = None
 
     # Create auth decorator bound to this app's JWT secret
     auth = require_auth(settings.jwt_secret)
@@ -86,7 +92,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return send_from_directory(str(static_dir), "dashboard.html")
 
     # =========================================================================
-    # Auth Endpoints
+    # Auth Endpoints (with whitelist enforcement)
     # =========================================================================
 
     @app.route("/api/auth/nonce", methods=["POST"])
@@ -97,7 +103,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/auth/verify", methods=["POST"])
     def auth_verify():
-        """Verify a SIWE message signature and issue a JWT token."""
+        """Verify a SIWE message signature and issue a JWT token.
+
+        Enforces wallet whitelist — only whitelisted addresses (and the owner)
+        can authenticate.
+        """
         data = request.json
         if not data:
             return jsonify({"error": "Missing request body"}), 400
@@ -122,8 +132,13 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         # Determine role: owner if address matches private key
         role = "user"
-        if owner_address and address == owner_address:
+        is_owner = owner_address and address == owner_address
+        if is_owner:
             role = "owner"
+
+        # Whitelist enforcement: owner is always allowed; others must be whitelisted
+        if not is_owner and not db.is_whitelisted(db_path, address):
+            return jsonify({"error": "Wallet not whitelisted. Contact the operator for access."}), 403
 
         # Create or get user
         user = db.create_or_get_user(db_path, address, role=role)
@@ -166,6 +181,43 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         })
 
     # =========================================================================
+    # Whitelist Management (owner only)
+    # =========================================================================
+
+    @app.route("/api/whitelist")
+    @auth
+    @require_owner
+    def get_whitelist():
+        """Get all whitelisted addresses."""
+        wl = db.get_whitelist(db_path)
+        return jsonify(wl)
+
+    @app.route("/api/whitelist", methods=["POST"])
+    @auth
+    @require_owner
+    def add_whitelist():
+        """Add an address to the whitelist."""
+        data = request.json or {}
+        address = data.get("address", "").strip()
+        if not address.startswith("0x") or len(address) != 42:
+            return jsonify({"error": "Invalid Ethereum address"}), 400
+        if db.add_to_whitelist(db_path, address, added_by=request.user_address):
+            return jsonify({"message": f"Added {address} to whitelist"})
+        return jsonify({"error": "Already whitelisted"}), 409
+
+    @app.route("/api/whitelist/<address>", methods=["DELETE"])
+    @auth
+    @require_owner
+    def remove_whitelist(address):
+        """Remove an address from the whitelist."""
+        # Prevent removing the owner
+        if owner_address and address.lower() == owner_address:
+            return jsonify({"error": "Cannot remove owner from whitelist"}), 400
+        if db.remove_from_whitelist(db_path, address):
+            return jsonify({"message": f"Removed {address} from whitelist"})
+        return jsonify({"error": "Not found"}), 404
+
+    # =========================================================================
     # Status
     # =========================================================================
 
@@ -180,9 +232,14 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             app.config["arb_thread"] is not None
             and app.config["arb_thread"].is_alive()
         )
+        fund_running = (
+            app.config["fund_thread"] is not None
+            and app.config["fund_thread"].is_alive()
+        )
         return jsonify({
             "copy_trading": "running" if copy_running else "stopped",
             "arbitrage": "running" if arb_running else "stopped",
+            "fund_manager": "running" if fund_running else "stopped",
             "config": {
                 "copy_percentage": settings.copy_percentage,
                 "min_copy_size": settings.min_copy_size,
@@ -221,6 +278,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             thread.start()
             app.config["copy_thread"] = thread
 
+            # Also start the position tracker if not already running
+            _ensure_position_tracker(settings)
+
             return jsonify({"message": "Copy trading started", "dry_run": dry_run})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -239,7 +299,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     @app.route("/api/copy/traders")
     @auth
     def copy_traders():
-        traders = db.get_active_traders(db_path, user_address=request.user_address)
+        include_inactive = request.args.get("include_inactive", "").lower() == "true"
+        if include_inactive:
+            traders = db.get_all_traders(db_path, user_address=request.user_address)
+        else:
+            traders = db.get_active_traders(db_path, user_address=request.user_address)
         return jsonify(traders)
 
     @app.route("/api/copy/traders", methods=["POST"])
@@ -260,6 +324,85 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if db.remove_trader(db_path, address, user_address=request.user_address):
             return jsonify({"message": f"Removed {address}"})
         return jsonify({"error": "Not found"}), 404
+
+    @app.route("/api/copy/traders/<address>", methods=["PATCH"])
+    @auth
+    def copy_update_trader(address):
+        """Update per-trader copy settings.
+
+        Accepts JSON with any subset of:
+        {copy_percentage, min_copy_size, max_copy_size, max_daily_spend, active}
+        """
+        data = request.json or {}
+        valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "active"}
+        updates = {}
+        for key in valid_keys:
+            if key in data:
+                val = data[key]
+                # Allow null to clear overrides
+                if val is None:
+                    updates[key] = None
+                elif key == "active":
+                    updates[key] = 1 if val else 0
+                else:
+                    val = float(val)
+                    if val < 0:
+                        return jsonify({"error": f"{key} must be >= 0"}), 400
+                    updates[key] = val
+
+        if not updates:
+            return jsonify({"error": "No valid settings provided"}), 400
+
+        if db.update_trader_settings(db_path, address, request.user_address, **updates):
+            return jsonify({"message": f"Updated settings for {address}"})
+        return jsonify({"error": "Trader not found"}), 404
+
+    @app.route("/api/copy/traders/<address>/profile")
+    @auth
+    def copy_trader_profile(address):
+        """Get a followed trader's live positions and recent trade history from Polymarket.
+
+        Returns their current open positions and trade history for PnL charting.
+        """
+        from polybacker.client import PolymarketClient
+
+        try:
+            client = PolymarketClient(settings)
+        except Exception:
+            # If CLOB client can't init (no private key), use a basic requests client
+            import requests as req
+            sess = req.Session()
+            sess.headers.update({"Accept": "application/json"})
+
+            # Fetch positions
+            try:
+                pos_resp = sess.get(
+                    f"{settings.data_host}/positions",
+                    params={"user": address.lower()},
+                    timeout=15,
+                )
+                positions = pos_resp.json() if pos_resp.ok else []
+            except Exception:
+                positions = []
+
+            # Fetch trades
+            try:
+                trades_resp = sess.get(
+                    f"{settings.data_host}/trades",
+                    params={"user": address.lower(), "limit": 200},
+                    timeout=15,
+                )
+                trades = trades_resp.json() if trades_resp.ok else []
+            except Exception:
+                trades = []
+
+            return jsonify({"positions": positions, "trades": trades})
+
+        # Use the client to fetch data
+        positions = client.get_trader_positions(address)
+        trades = client.get_trader_trades(address, limit=200)
+
+        return jsonify({"positions": positions, "trades": trades})
 
     @app.route("/api/copy/trades")
     @auth
@@ -316,6 +459,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             thread.start()
             app.config["arb_thread"] = thread
 
+            # Also start the position tracker if not already running
+            _ensure_position_tracker(settings)
+
             return jsonify({"message": "Arbitrage started", "dry_run": dry_run})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -357,6 +503,236 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return jsonify(series)
 
     # =========================================================================
+    # Positions Endpoints
+    # =========================================================================
+
+    @app.route("/api/positions")
+    @auth
+    def get_positions():
+        """Get all open positions for the authenticated user."""
+        positions = db.get_open_positions(db_path, user_address=request.user_address)
+        return jsonify(positions)
+
+    @app.route("/api/positions/summary")
+    @auth
+    def positions_summary():
+        """Get position summary stats."""
+        summary = db.get_positions_summary(db_path, user_address=request.user_address)
+        return jsonify(summary)
+
+    @app.route("/api/positions/closed")
+    @auth
+    def closed_positions():
+        """Get recently closed positions (last 30 days)."""
+        from polybacker import db as _db
+        with _db._connect(db_path) as conn:
+            rows = conn.execute(
+                """SELECT * FROM positions
+                   WHERE user_address = ? AND status = 'closed'
+                   AND last_updated >= datetime('now', '-30 days')
+                   ORDER BY last_updated DESC LIMIT 50""",
+                (request.user_address,),
+            ).fetchall()
+            return jsonify([dict(r) for r in rows])
+
+    # =========================================================================
+    # STF Fund Endpoints
+    # =========================================================================
+
+    # --- Fund CRUD ---
+
+    @app.route("/api/funds")
+    @auth
+    def list_funds():
+        """List all active funds (public)."""
+        funds = db.get_funds(db_path, active_only=True)
+        return jsonify(funds)
+
+    @app.route("/api/funds", methods=["POST"])
+    @auth
+    @require_owner
+    def create_fund():
+        """Create a new fund (owner only)."""
+        data = request.json or {}
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+
+        if not name:
+            return jsonify({"error": "Fund name is required"}), 400
+        if len(name) > 50:
+            return jsonify({"error": "Fund name too long (max 50 chars)"}), 400
+
+        fund_id = db.create_fund(db_path, request.user_address, name, description)
+        return jsonify({"id": fund_id, "message": f"Fund '{name}' created"}), 201
+
+    @app.route("/api/funds/<int:fund_id>")
+    @auth
+    def get_fund(fund_id):
+        """Get fund details including allocations."""
+        fund = db.get_fund(db_path, fund_id)
+        if not fund:
+            return jsonify({"error": "Fund not found"}), 404
+        fund["allocations"] = db.get_fund_allocations(db_path, fund_id)
+        return jsonify(fund)
+
+    @app.route("/api/funds/<int:fund_id>", methods=["PATCH"])
+    @auth
+    @require_owner
+    def update_fund(fund_id):
+        """Update a fund (owner only)."""
+        data = request.json or {}
+        kwargs = {}
+        if "name" in data:
+            kwargs["name"] = data["name"].strip()
+        if "description" in data:
+            kwargs["description"] = data["description"].strip()
+        if "active" in data:
+            kwargs["active"] = 1 if data["active"] else 0
+
+        if not kwargs:
+            return jsonify({"error": "No valid fields provided"}), 400
+
+        if db.update_fund(db_path, fund_id, request.user_address, **kwargs):
+            return jsonify({"message": "Fund updated"})
+        return jsonify({"error": "Fund not found or not owner"}), 404
+
+    # --- Fund Allocations ---
+
+    @app.route("/api/funds/<int:fund_id>/allocations", methods=["PUT"])
+    @auth
+    @require_owner
+    def set_allocations(fund_id):
+        """Set trader allocations for a fund. Weights must sum to ~1.0.
+
+        Body: {"allocations": [{"trader_address": "0x...", "weight": 0.5}, ...]}
+        """
+        data = request.json or {}
+        allocations = data.get("allocations", [])
+
+        if not allocations:
+            return jsonify({"error": "Allocations list is required"}), 400
+
+        # Validate weights sum to approximately 1.0
+        total_weight = sum(a.get("weight", 0) for a in allocations)
+        if abs(total_weight - 1.0) > 0.01:
+            return jsonify({
+                "error": f"Weights must sum to 1.0 (got {total_weight:.4f})"
+            }), 400
+
+        # Validate each allocation
+        for alloc in allocations:
+            addr = alloc.get("trader_address", "")
+            if not addr.startswith("0x") or len(addr) != 42:
+                return jsonify({"error": f"Invalid address: {addr}"}), 400
+            if alloc.get("weight", 0) <= 0:
+                return jsonify({"error": f"Weight must be > 0 for {addr}"}), 400
+
+        # Verify fund exists and is owned by user
+        fund = db.get_fund(db_path, fund_id)
+        if not fund or fund["owner_address"] != request.user_address:
+            return jsonify({"error": "Fund not found or not owner"}), 404
+
+        db.set_fund_allocations(db_path, fund_id, allocations)
+        return jsonify({"message": "Allocations updated"})
+
+    # --- Fund Investment ---
+
+    @app.route("/api/funds/<int:fund_id>/invest", methods=["POST"])
+    @auth
+    def invest_in_fund(fund_id):
+        """Invest in a fund. Returns shares received."""
+        data = request.json or {}
+        amount = data.get("amount", 0)
+
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid amount"}), 400
+
+        if amount <= 0:
+            return jsonify({"error": "Amount must be positive"}), 400
+
+        try:
+            investment = db.invest_in_fund(db_path, fund_id, request.user_address, amount)
+            return jsonify({
+                "message": f"Invested ${amount:.2f}",
+                "shares": investment["shares"],
+                "investment_id": investment["id"],
+            })
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/funds/investments/<int:investment_id>/withdraw", methods=["POST"])
+    @auth
+    def withdraw_investment(investment_id):
+        """Withdraw an investment at current NAV."""
+        try:
+            amount = db.withdraw_from_fund(db_path, investment_id, request.user_address)
+            return jsonify({
+                "message": f"Withdrawn ${amount:.2f}",
+                "amount": round(amount, 2),
+            })
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/funds/my-investments")
+    @auth
+    def my_investments():
+        """Get all investments for the authenticated user."""
+        investments = db.get_investor_investments(db_path, request.user_address)
+        return jsonify(investments)
+
+    # --- Fund Performance ---
+
+    @app.route("/api/funds/<int:fund_id>/performance")
+    @auth
+    def fund_performance(fund_id):
+        """Get NAV history for a fund."""
+        days = request.args.get("days", 30, type=int)
+        perf = db.get_fund_performance(db_path, fund_id, days=days)
+        return jsonify(perf)
+
+    # --- Fund Engine Control ---
+
+    @app.route("/api/funds/engine/start", methods=["POST"])
+    @auth
+    @require_owner
+    def fund_engine_start():
+        """Start the fund manager engine (owner only)."""
+        if app.config["fund_thread"] and app.config["fund_thread"].is_alive():
+            return jsonify({"error": "Fund manager already running"}), 400
+
+        from polybacker.client import PolymarketClient
+        from polybacker.fund_manager import FundManager
+
+        dry_run = request.json.get("dry_run", False) if request.json else False
+
+        try:
+            client = PolymarketClient(settings)
+            fm = FundManager(settings=settings, client=client, dry_run=dry_run)
+            app.config["fund_manager"] = fm
+
+            thread = threading.Thread(target=fm.run, daemon=True)
+            thread.start()
+            app.config["fund_thread"] = thread
+
+            return jsonify({"message": "Fund manager started", "dry_run": dry_run})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/funds/engine/stop", methods=["POST"])
+    @auth
+    @require_owner
+    def fund_engine_stop():
+        """Stop the fund manager engine."""
+        fm = app.config.get("fund_manager")
+        if fm:
+            fm.stop()
+            app.config["fund_manager"] = None
+            return jsonify({"message": "Fund manager stopped"})
+        return jsonify({"error": "Not running"}), 400
+
+    # =========================================================================
     # General Endpoints
     # =========================================================================
 
@@ -379,6 +755,30 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return jsonify(user)
 
     # =========================================================================
+    # Position Tracker Helper
+    # =========================================================================
+
+    def _ensure_position_tracker(s: Settings):
+        """Start the position price tracker if not already running."""
+        if app.config["position_thread"] and app.config["position_thread"].is_alive():
+            return
+
+        from polybacker.client import PolymarketClient
+        from polybacker.positions import PositionTracker
+
+        try:
+            client = PolymarketClient(s)
+            pt = PositionTracker(settings=s, client=client)
+            app.config["position_tracker"] = pt
+
+            thread = threading.Thread(target=pt.run, kwargs={"interval": 30}, daemon=True)
+            thread.start()
+            app.config["position_thread"] = thread
+            logger.info("Position tracker started")
+        except Exception as e:
+            logger.warning(f"Could not start position tracker: {e}")
+
+    # =========================================================================
     # WebSocket Events
     # =========================================================================
 
@@ -398,9 +798,14 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             app.config["arb_thread"] is not None
             and app.config["arb_thread"].is_alive()
         )
+        fund_running = (
+            app.config["fund_thread"] is not None
+            and app.config["fund_thread"].is_alive()
+        )
         emit("status", {
             "copy_trading": "running" if copy_running else "stopped",
             "arbitrage": "running" if arb_running else "stopped",
+            "fund_manager": "running" if fund_running else "stopped",
         })
 
     return app, socketio

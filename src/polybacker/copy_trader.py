@@ -1,6 +1,7 @@
 """Copy Trading Engine.
 
 Monitors wallet addresses on Polymarket and automatically mirrors their trades.
+Supports per-trader custom settings (copy %, min/max size, daily budget).
 """
 
 from __future__ import annotations
@@ -71,6 +72,23 @@ class CopyTrader:
         return db.get_active_traders(self.db_path)
 
     # -------------------------------------------------------------------------
+    # Per-trader settings resolution
+    # -------------------------------------------------------------------------
+
+    def _resolve_settings(self, trader: dict) -> dict:
+        """Resolve per-trader overrides vs global defaults.
+
+        For each setting, returns the per-trader value if set (not None),
+        otherwise falls back to the global Settings value.
+        """
+        return {
+            "copy_percentage": trader.get("copy_percentage") if trader.get("copy_percentage") is not None else self.settings.copy_percentage,
+            "min_copy_size": trader.get("min_copy_size") if trader.get("min_copy_size") is not None else self.settings.min_copy_size,
+            "max_copy_size": trader.get("max_copy_size") if trader.get("max_copy_size") is not None else self.settings.max_copy_size,
+            "max_daily_spend": trader.get("max_daily_spend") if trader.get("max_daily_spend") is not None else self.settings.max_daily_spend,
+        }
+
+    # -------------------------------------------------------------------------
     # Trade evaluation
     # -------------------------------------------------------------------------
 
@@ -98,13 +116,17 @@ class CopyTrader:
             or f"{trade.get('asset_id', '')}_{trade.get('timestamp', '')}"
         )
 
-    def should_copy(self, trade: dict, trader_address: str) -> tuple[bool, str]:
+    def should_copy(self, trade: dict, trader: dict) -> tuple[bool, str]:
         """Determine if we should copy this trade.
+
+        Uses per-trader settings when available.
 
         Returns:
             (should_copy: bool, reason: str)
         """
         trade_id = self._get_trade_id(trade)
+        trader_address = trader["address"]
+        resolved = self._resolve_settings(trader)
 
         # 1. Already seen?
         if db.is_trade_seen(self.db_path, trade_id):
@@ -132,38 +154,52 @@ class CopyTrader:
             db.mark_trade_seen(self.db_path, trade_id)
             return False, f"invalid_side: {side}"
 
-        # 5. Daily spend limit?
+        # 5. Global daily spend limit
         daily_spend = db.get_daily_spend(self.db_path, strategy="copy")
         if daily_spend >= self.settings.max_daily_spend:
-            return False, f"daily_limit_reached (${daily_spend:.2f})"
+            return False, f"global_daily_limit_reached (${daily_spend:.2f})"
+
+        # 6. Per-trader daily spend limit
+        trader_daily = db.get_trader_daily_spend(self.db_path, trader_address)
+        trader_max_daily = resolved["max_daily_spend"]
+        if trader_daily >= trader_max_daily:
+            return False, f"trader_daily_limit_reached (${trader_daily:.2f}/{trader_max_daily:.2f})"
 
         return True, "ok"
 
-    def calculate_copy_size(self, trade: dict) -> float:
+    def calculate_copy_size(self, trade: dict, trader: dict) -> float:
         """Calculate the USDC amount to copy.
 
-        Applies: percentage of original * min/max bounds * daily spend remaining.
+        Uses per-trader settings for percentage, min/max bounds, and daily budget.
         """
+        resolved = self._resolve_settings(trader)
+
         # Estimate original trade size in USDC
         size = float(trade.get("size", 0) or 0)
         price = float(trade.get("price", 0) or 0)
         original_usd = size * price if price > 0 else size
 
         if original_usd <= 0:
-            return self.settings.min_copy_size
+            return resolved["min_copy_size"]
 
-        # Apply percentage
-        copy_size = original_usd * self.settings.copy_percentage
+        # Apply per-trader percentage
+        copy_size = original_usd * resolved["copy_percentage"]
 
-        # Apply min/max
-        copy_size = max(copy_size, self.settings.min_copy_size)
-        copy_size = min(copy_size, self.settings.max_copy_size)
+        # Apply per-trader min/max
+        copy_size = max(copy_size, resolved["min_copy_size"])
+        copy_size = min(copy_size, resolved["max_copy_size"])
 
-        # Don't exceed remaining daily budget
+        # Don't exceed remaining global daily budget
         daily_spend = db.get_daily_spend(self.db_path, strategy="copy")
-        remaining = self.settings.max_daily_spend - daily_spend
-        if copy_size > remaining:
-            copy_size = remaining
+        global_remaining = self.settings.max_daily_spend - daily_spend
+        if copy_size > global_remaining:
+            copy_size = global_remaining
+
+        # Don't exceed remaining per-trader daily budget
+        trader_daily = db.get_trader_daily_spend(self.db_path, trader["address"])
+        trader_remaining = resolved["max_daily_spend"] - trader_daily
+        if copy_size > trader_remaining:
+            copy_size = trader_remaining
 
         return round(copy_size, 2)
 
@@ -171,7 +207,7 @@ class CopyTrader:
     # Trade execution
     # -------------------------------------------------------------------------
 
-    def execute_copy(self, trade: dict, trader_address: str) -> bool:
+    def execute_copy(self, trade: dict, trader: dict) -> bool:
         """Copy a single trade.
 
         Returns True if the trade was executed (or logged in dry-run).
@@ -180,7 +216,8 @@ class CopyTrader:
         token_id = trade.get("asset_id") or trade.get("token_id")
         side = trade.get("side", "").upper()
         market = trade.get("market", "") or trade.get("title", "") or ""
-        copy_size = self.calculate_copy_size(trade)
+        trader_address = trader["address"]
+        copy_size = self.calculate_copy_size(trade, trader)
 
         if copy_size <= 0:
             logger.warning("Copy size is 0 — skipping")
@@ -205,7 +242,7 @@ class CopyTrader:
             status = "executed" if result else "failed"
 
         # Record in DB
-        db.record_trade(
+        trade_record_id = db.record_trade(
             db_path=self.db_path,
             strategy="copy",
             token_id=token_id,
@@ -221,6 +258,24 @@ class CopyTrader:
         if status == "executed":
             db.update_trader_stats(self.db_path, trader_address, copy_size)
 
+            # Update position tracking
+            trade_price = float(trade.get("price", 0) or 0)
+            if trade_price > 0:
+                try:
+                    db.upsert_position(
+                        db_path=self.db_path,
+                        user_address=trader.get("user_address", "legacy"),
+                        token_id=token_id,
+                        market=market,
+                        side=side,
+                        trade_amount=copy_size,
+                        trade_price=trade_price,
+                        strategy="copy",
+                        copied_from=trader_address.lower(),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to upsert position: {e}")
+
         # Mark as seen
         db.mark_trade_seen(self.db_path, trade_id)
 
@@ -234,18 +289,19 @@ class CopyTrader:
     # Polling loop
     # -------------------------------------------------------------------------
 
-    def poll_trader(self, address: str) -> int:
+    def poll_trader(self, trader: dict) -> int:
         """Check a single trader for new trades and copy them.
 
         Returns the number of trades copied.
         """
+        address = trader["address"]
         trades = self.client.get_trader_trades(address, limit=10)
         copied = 0
 
         for trade in trades:
-            should, reason = self.should_copy(trade, address)
+            should, reason = self.should_copy(trade, trader)
             if should:
-                if self.execute_copy(trade, address):
+                if self.execute_copy(trade, trader):
                     copied += 1
             elif reason != "already_seen":
                 trade_id = self._get_trade_id(trade)
@@ -275,6 +331,18 @@ class CopyTrader:
         logger.info(f"Poll interval: {self.settings.poll_interval}s")
         if self.dry_run:
             logger.info("DRY RUN MODE — no real trades will be placed")
+
+        # Log per-trader overrides
+        for t in traders:
+            overrides = {k: v for k, v in [
+                ("copy%", t.get("copy_percentage")),
+                ("min", t.get("min_copy_size")),
+                ("max", t.get("max_copy_size")),
+                ("daily", t.get("max_daily_spend")),
+            ] if v is not None}
+            if overrides:
+                logger.info(f"  {t['address'][:10]}... custom: {overrides}")
+
         logger.info("")
 
         iteration = 0
@@ -287,7 +355,7 @@ class CopyTrader:
                     if not self._running:
                         break
                     try:
-                        copied = self.poll_trader(trader["address"])
+                        copied = self.poll_trader(trader)
                         total_copied += copied
                     except Exception as e:
                         logger.error(
@@ -302,7 +370,7 @@ class CopyTrader:
                 # Periodic stats
                 if iteration % 20 == 0:
                     self._log_stats()
-                    # Refresh trader list (in case new ones were added)
+                    # Refresh trader list (in case new ones were added or settings changed)
                     traders = self.get_traders()
                     # Cleanup old dedup entries
                     db.cleanup_old_seen_trades(self.db_path)
