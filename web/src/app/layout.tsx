@@ -4,7 +4,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Polybacker",
-  description: "Polymarket copy trading & arbitrage dashboard",
+  description: "Polymarket copy trading & arbitrage terminal",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
