@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 interface AuthState {
   address: string | null;
@@ -26,9 +27,7 @@ export function useAuth(): AuthState {
       return;
     }
 
-    fetch("/api/auth/session", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch("/api/auth/session")
       .then((res) => {
         if (!res.ok) throw new Error("Invalid session");
         return res.json();
