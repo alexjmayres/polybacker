@@ -873,3 +873,26 @@ def record_fund_trade(db_path: str, fund_id: int, trade_id: int, trader_address:
             "INSERT INTO fund_trades (fund_id, trade_id, trader_address, amount) VALUES (?, ?, ?, ?)",
             (fund_id, trade_id, trader_address.lower(), amount),
         )
+
+
+def get_fund_trades(db_path: str, fund_id: int, limit: int = 50) -> list[dict]:
+    """Get recent trades executed by a fund, joined with trade details."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT ft.id, ft.fund_id, ft.trader_address, ft.amount, ft.timestamp,
+                      t.token_id, t.side, t.market, t.status
+               FROM fund_trades ft
+               LEFT JOIN trades t ON ft.trade_id = t.id
+               WHERE ft.fund_id = ?
+               ORDER BY ft.timestamp DESC
+               LIMIT ?""",
+            (fund_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_fund_by_name(db_path: str, name: str) -> Optional[dict]:
+    """Get a fund by its name."""
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM funds WHERE name = ?", (name,)).fetchone()
+        return dict(row) if row else None

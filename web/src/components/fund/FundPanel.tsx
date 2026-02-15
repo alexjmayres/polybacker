@@ -13,12 +13,12 @@ export function FundPanel() {
     <div className="space-y-6 slide-up">
       <FundOverview />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 space-y-6">
-          {isOwner && <FundControls />}
-          <MyInvestments />
-        </div>
         <div className="lg:col-span-2">
           <FundList />
+        </div>
+        <div className="lg:col-span-1 space-y-6">
+          <MyInvestments />
+          {isOwner && <FundControls />}
         </div>
       </div>
     </div>

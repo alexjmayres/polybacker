@@ -69,6 +69,21 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         db.add_to_whitelist(db_path, owner_address, added_by="system")
         logger.info(f"Owner address: {owner_address}")
 
+        # Auto-create PB500 Master Fund if it doesn't exist
+        existing_funds = db.get_funds(db_path, active_only=False)
+        pb500 = next((f for f in existing_funds if f["name"] == "PB500 Master Fund"), None)
+        if not pb500:
+            fund_id = db.create_fund(
+                db_path, owner_address,
+                "PB500 Master Fund",
+                "Curated portfolio of top Polymarket traders. "
+                "Managed by the Polybacker operator. "
+                "Invest to get proportional exposure to all allocated traders.",
+            )
+            logger.info(f"Created PB500 Master Fund (id={fund_id})")
+        else:
+            logger.info(f"PB500 Master Fund exists (id={pb500['id']})")
+
     app.config["settings"] = settings
     app.config["owner_address"] = owner_address
     app.config["copy_trader"] = None
@@ -829,6 +844,20 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         days = request.args.get("days", 30, type=int)
         perf = db.get_fund_performance(db_path, fund_id, days=days)
         return jsonify(perf)
+
+    # --- Fund Trades ---
+
+    @app.route("/api/funds/<int:fund_id>/trades")
+    @auth
+    def fund_trades(fund_id):
+        """Get recent trades executed by a fund."""
+        limit = request.args.get("limit", 50, type=int)
+        fund = db.get_fund(db_path, fund_id)
+        if not fund:
+            return jsonify({"error": "Fund not found"}), 404
+
+        trades = db.get_fund_trades(db_path, fund_id, limit=limit)
+        return jsonify(trades)
 
     # --- Fund Engine Control ---
 
