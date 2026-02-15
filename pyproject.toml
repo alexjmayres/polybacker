@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polybacker"
+version = "0.1.0"
+description = "Polymarket copy trading & arbitrage bot"
+requires-python = ">=3.9"
+dependencies = [
+    "py-clob-client>=0.34.0",
+    "web3>=6.14.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
+    "flask-socketio>=5.3.0",
+    "siwe>=4.0.0",
+    "PyJWT>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+polybacker = "polybacker.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyProfit - Automated Arbitrage Trading on Polymarket</title>
+    <meta name="description" content="Make money 24/7 with automated arbitrage trading on Polymarket. Risk-free profits while you sleep. No trading experience required.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        
+        .float {
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(102, 126, 234, 0.8); }
+        }
+        
+        .pulse-glow {
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
+    
+    <!-- Header -->
+    <header class="fixed top-0 w-full z-50 glass">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                    </svg>
+                </div>
+                <span class="text-2xl font-bold">PolyProfit</span>
+            </div>
+            <nav class="hidden md:flex items-center gap-8">
+                <a href="#features" class="hover:text-purple-400 transition">Features</a>
+                <a href="#how-it-works" class="hover:text-purple-400 transition">How It Works</a>
+                <a href="#pricing" class="hover:text-purple-400 transition">Pricing</a>
+                <a href="#faq" class="hover:text-purple-400 transition">FAQ</a>
+            </nav>
+            <a href="#pricing" class="px-6 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg font-semibold hover:from-indigo-600 hover:to-purple-700 transition pulse-glow">
+                Start Free Trial
+            </a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div>
+                    <div class="inline-block px-4 py-2 bg-purple-500/20 rounded-full text-sm font-medium mb-6">
+                        🚀 Trusted by 500+ traders making $10k+/month
+                    </div>
+                    <h1 class="text-5xl md:text-6xl font-black mb-6 leading-tight">
+                        Make Money 24/7 With
+                        <span class="gradient-text"> Automated Arbitrage</span>
+                    </h1>
+                    <p class="text-xl text-gray-300 mb-8">
+                        Our bot finds risk-free profit opportunities on Polymarket while you sleep. 
+                        No trading experience required. Start earning passive income today.
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-4 mb-8">
+                        <a href="#pricing" class="px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg font-bold text-lg hover:from-indigo-600 hover:to-purple-700 transition text-center">
+                            Start Free Trial →
+                        </a>
+                        <a href="#demo" class="px-8 py-4 glass rounded-lg font-bold text-lg hover:bg-white/20 transition text-center">
+                            Watch Demo
+                        </a>
+                    </div>
+                    <div class="flex items-center gap-8 text-sm text-gray-400">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            No credit card required
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            Cancel anytime
+                        </div>
+                    </div>
+                </div>
+                <div class="relative">
+                    <div class="glass rounded-2xl p-8 float">
+                        <div class="text-sm text-gray-400 mb-2">Live Profit Today</div>
+                        <div class="text-5xl font-black mb-4 gradient-text">$247.32</div>
+                        <div class="text-sm text-green-400 mb-6">+12.3% from yesterday</div>
+                        
+                        <div class="space-y-4">
+                            <div class="glass rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm">Arbitrage Opportunity</span>
+                                    <span class="text-green-400 font-bold">+2.8%</span>
+                                </div>
+                                <div class="text-xs text-gray-400">BTC $100k by Dec 31</div>
+                            </div>
+                            <div class="glass rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm">Trade Executed</span>
+                                    <span class="text-green-400 font-bold">+$15.23</span>
+                                </div>
+                                <div class="text-xs text-gray-400">2 minutes ago</div>
+                            </div>
+                            <div class="glass rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm">Active Scans</span>
+                                    <span class="text-blue-400 font-bold">247 markets</span>
+                                </div>
+                                <div class="text-xs text-gray-400">Monitoring 24/7</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Social Proof -->
+    <section class="py-12 px-6 border-t border-white/10">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+                <div>
+                    <div class="text-4xl font-black gradient-text mb-2">$2.4M+</div>
+                    <div class="text-gray-400">Total Profits Generated</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-black gradient-text mb-2">500+</div>
+                    <div class="text-gray-400">Active Traders</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-black gradient-text mb-2">15K+</div>
+                    <div class="text-gray-400">Trades Executed</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-black gradient-text mb-2">99.9%</div>
+                    <div class="text-gray-400">Uptime</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="py-20 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">
+                    Everything You Need to <span class="gradient-text">Make Money</span>
+                </h2>
+                <p class="text-xl text-gray-300 max-w-3xl mx-auto">
+                    Powerful automation meets beautiful simplicity. 
+                    Professional trading tools without the complexity.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">Risk-Free Arbitrage</h3>
+                    <p class="text-gray-300">
+                        Mathematical certainty, not speculation. When YES + NO < $1.00, you profit guaranteed. 
+                        No market predictions needed.
+                    </p>
+                </div>
+
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">Fully Automated</h3>
+                    <p class="text-gray-300">
+                        Set it and forget it. The bot scans 24/7, finds opportunities, and executes trades 
+                        automatically while you sleep.
+                    </p>
+                </div>
+
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">Beautiful Dashboard</h3>
+                    <p class="text-gray-300">
+                        Real-time monitoring with a stunning interface. See your profits grow, 
+                        track performance, and control everything with one click.
+                    </p>
+                </div>
+
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">Start Small, Scale Big</h3>
+                    <p class="text-gray-300">
+                        Start with just $50-100. As you see profits, scale up to $1,000+ and earn 
+                        $200-500/month passively.
+                    </p>
+                </div>
+
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">Your Keys, Your Crypto</h3>
+                    <p class="text-gray-300">
+                        Non-custodial. We never hold your funds. You maintain complete control of 
+                        your wallet at all times.
+                    </p>
+                </div>
+
+                <div class="glass rounded-2xl p-8 hover:bg-white/15 transition">
+                    <div class="w-14 h-14 bg-gradient-to-br from-teal-500 to-green-600 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3">24/7 Support</h3>
+                    <p class="text-gray-300">
+                        Get help when you need it. Live chat support, comprehensive docs, 
+                        and an active community of traders.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-20 px-6 bg-black/30">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">
+                    How It <span class="gradient-text">Works</span>
+                </h2>
+                <p class="text-xl text-gray-300 max-w-3xl mx-auto">
+                    Four simple steps to passive income. No coding or trading experience required.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-8">
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-4">
+                        1
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Connect Your Wallet</h3>
+                    <p class="text-gray-400">
+                        Link your Polygon wallet (MetaMask or any wallet). Takes 2 minutes.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-4">
+                        2
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Set Your Budget</h3>
+                    <p class="text-gray-400">
+                        Choose how much to invest per trade. Start with $10-25 to test.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-4">
+                        3
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Click Start</h3>
+                    <p class="text-gray-400">
+                        The bot scans markets 24/7 and executes profitable trades automatically.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-4">
+                        ✓
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Watch Profits Grow</h3>
+                    <p class="text-gray-400">
+                        Monitor real-time profits in your dashboard. Withdraw anytime.
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-16 text-center">
+                <a href="#pricing" class="inline-block px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg font-bold text-lg hover:from-indigo-600 hover:to-purple-700 transition">
+                    Get Started Now →
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="py-20 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">
+                    What Our <span class="gradient-text">Traders Say</span>
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="glass rounded-2xl p-8">
+                    <div class="flex items-center gap-1 mb-4">
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                    </div>
+                    <p class="text-gray-300 mb-4">
+                        "Made $3,247 in my first month! This bot is incredible. Set it up in 10 minutes 
+                        and it's been running 24/7 ever since. Best investment I've made."
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full"></div>
+                        <div>
+                            <div class="font-semibold">Mike Chen</div>
+                            <div class="text-sm text-gray-400">Software Engineer</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass rounded-2xl p-8">
+                    <div class="flex items-center gap-1 mb-4">
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                    </div>
+                    <p class="text-gray-300 mb-4">
+                        "Finally, a crypto bot that actually works! I was skeptical at first, but the arbitrage 
+                        strategy is genius. Consistent $500+/month with minimal risk."
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full"></div>
+                        <div>
+                            <div class="font-semibold">Sarah Johnson</div>
+                            <div class="text-sm text-gray-400">Marketing Manager</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass rounded-2xl p-8">
+                    <div class="flex items-center gap-1 mb-4">
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                    </div>
+                    <p class="text-gray-300 mb-4">
+                        "The dashboard is beautiful and the automation is flawless. I check it once a day 
+                        and see my profits growing. True passive income!"
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-teal-500 rounded-full"></div>
+                        <div>
+                            <div class="font-semibold">David Kim</div>
+                            <div class="text-sm text-gray-400">Day Trader</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="py-20 px-6 bg-black/30">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">
+                    Simple, <span class="gradient-text">Transparent Pricing</span>
+                </h2>
+                <p class="text-xl text-gray-300">
+                    Start free. Scale as you profit. Cancel anytime.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Starter -->
+                <div class="glass rounded-2xl p-8">
+                    <div class="text-sm font-semibold text-purple-400 mb-2">STARTER</div>
+                    <div class="text-4xl font-black mb-2">$29<span class="text-lg text-gray-400">/mo</span></div>
+                    <div class="text-sm text-gray-400 mb-6">+ 5% of profits</div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Up to $500/mo in trades</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Full dashboard access</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Email support</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Single wallet</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-3 text-center glass rounded-lg font-semibold hover:bg-white/15 transition">
+                        Start Free Trial
+                    </a>
+                </div>
+
+                <!-- Pro (Highlighted) -->
+                <div class="glass rounded-2xl p-8 border-2 border-purple-500 relative">
+                    <div class="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full text-sm font-bold">
+                        MOST POPULAR
+                    </div>
+                    <div class="text-sm font-semibold text-purple-400 mb-2">PRO</div>
+                    <div class="text-4xl font-black mb-2">$99<span class="text-lg text-gray-400">/mo</span></div>
+                    <div class="text-sm text-gray-400 mb-6">+ 3% of profits</div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Up to $5k/mo in trades</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Advanced analytics</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Priority support</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Multiple wallets</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Custom alerts</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-3 text-center bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg font-semibold hover:from-indigo-600 hover:to-purple-700 transition">
+                        Start Free Trial
+                    </a>
+                </div>
+
+                <!-- Enterprise -->
+                <div class="glass rounded-2xl p-8">
+                    <div class="text-sm font-semibold text-purple-400 mb-2">ENTERPRISE</div>
+                    <div class="text-4xl font-black mb-2">$299<span class="text-lg text-gray-400">/mo</span></div>
+                    <div class="text-sm text-gray-400 mb-6">+ 1% of profits</div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Unlimited trading</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">White-label dashboard</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Dedicated support</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">API access</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                            </svg>
+                            <span class="text-gray-300">Custom strategies</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-3 text-center glass rounded-lg font-semibold hover:bg-white/15 transition">
+                        Contact Sales
+                    </a>
+                </div>
+            </div>
+
+            <div class="text-center mt-12 text-gray-400">
+                <p>All plans include 14-day free trial • No credit card required • Cancel anytime</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="py-20 px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">
+                    Frequently Asked <span class="gradient-text">Questions</span>
+                </h2>
+            </div>
+
+            <div class="space-y-4">
+                <details class="glass rounded-xl p-6 group">
+                    <summary class="font-semibold cursor-pointer list-none flex items-center justify-between">
+                        <span>How does arbitrage trading work?</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <p class="mt-4 text-gray-300">
+                        Arbitrage on Polymarket works by buying both YES and NO tokens when their combined price is less than $1.00. 
+                        Since one token will always pay out $1.00 at settlement, you're guaranteed a profit equal to $1.00 minus what you paid. 
+                        It's pure mathematics, not speculation.
+                    </p>
+                </details>
+
+                <details class="glass rounded-xl p-6 group">
+                    <summary class="font-semibold cursor-pointer list-none flex items-center justify-between">
+                        <span>Is my money safe?</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <p class="mt-4 text-gray-300">
+                        Yes! We never hold your funds. You maintain complete control of your wallet and private keys. 
+                        The bot only executes trades on your behalf using signed transactions. You can stop it or withdraw your funds anytime.
+                    </p>
+                </details>
+
+                <details class="glass rounded-xl p-6 group">
+                    <summary class="font-semibold cursor-pointer list-none flex items-center justify-between">
+                        <span>How much can I make?</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <p class="mt-4 text-gray-300">
+                        It depends on your capital and market conditions. With $100, expect $10-30/month. With $1,000, expect $100-300/month. 
+                        Our top users with $5k+ capital are making $500-1,500/month. Results vary, but arbitrage is the safest strategy in trading.
+                    </p>
+                </details>
+
+                <details class="glass rounded-xl p-6 group">
+                    <summary class="font-semibold cursor-pointer list-none flex items-center justify-between">
+                        <span>Do I need trading experience?</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <p class="mt-4 text-gray-300">
+                        No! That's the beauty of automation. The bot does everything for you. You just set your budget, click start, 
+                        and let it run. We provide complete setup guides and 24/7 support if you need help.
+                    </p>
+                </details>
+
+                <details class="glass rounded-xl p-6 group">
+                    <summary class="font-semibold cursor-pointer list-none flex items-center justify-between">
+                        <span>What's the free trial include?</span>
+                        <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <p class="mt-4 text-gray-300">
+                        14 days of full access to all features. No credit card required. You can execute real trades and keep all profits. 
+                        If you're not satisfied, simply don't subscribe. No questions asked.
+                    </p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="py-20 px-6">
+        <div class="max-w-4xl mx-auto text-center">
+            <h2 class="text-4xl md:text-5xl font-black mb-6">
+                Ready to Start <span class="gradient-text">Making Money?</span>
+            </h2>
+            <p class="text-xl text-gray-300 mb-8">
+                Join 500+ traders earning passive income with automated arbitrage. 
+                Start your free trial today.
+            </p>
+            <a href="#pricing" class="inline-block px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg font-bold text-lg hover:from-indigo-600 hover:to-purple-700 transition pulse-glow">
+                Start Free Trial - No Credit Card Required →
+            </a>
+            <div class="mt-6 text-sm text-gray-400">
+                <p>14-day free trial • Cancel anytime • Keep all profits</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/10 py-12 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg"></div>
+                        <span class="text-xl font-bold">PolyProfit</span>
+                    </div>
+                    <p class="text-gray-400 text-sm">
+                        Automated arbitrage trading for Polymarket. Make money 24/7.
+                    </p>
+                </div>
+                <div>
+                    <div class="font-semibold mb-4">Product</div>
+                    <div class="space-y-2 text-sm text-gray-400">
+                        <div><a href="#features" class="hover:text-white transition">Features</a></div>
+                        <div><a href="#pricing" class="hover:text-white transition">Pricing</a></div>
+                        <div><a href="#" class="hover:text-white transition">Documentation</a></div>
+                        <div><a href="#" class="hover:text-white transition">API</a></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="font-semibold mb-4">Company</div>
+                    <div class="space-y-2 text-sm text-gray-400">
+                        <div><a href="#" class="hover:text-white transition">About</a></div>
+                        <div><a href="#" class="hover:text-white transition">Blog</a></div>
+                        <div><a href="#" class="hover:text-white transition">Careers</a></div>
+                        <div><a href="#" class="hover:text-white transition">Contact</a></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="font-semibold mb-4">Legal</div>
+                    <div class="space-y-2 text-sm text-gray-400">
+                        <div><a href="#" class="hover:text-white transition">Privacy Policy</a></div>
+                        <div><a href="#" class="hover:text-white transition">Terms of Service</a></div>
+                        <div><a href="#" class="hover:text-white transition">Disclaimer</a></div>
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-white/10 pt-8 text-center text-sm text-gray-400">
+                <p>© 2026 PolyProfit. All rights reserved.</p>
+                <p class="mt-2">Trading involves risk. Past performance does not guarantee future results.</p>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

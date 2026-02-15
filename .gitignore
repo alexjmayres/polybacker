@@ -1,0 +1,49 @@
+# Environment
+.env
+*.env.local
+
+# Database
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Trade data
+trades.jsonl
+copy_trades.jsonl
+token_ids.json
+
+# Next.js / Web
+web/.next/
+web/node_modules/
+web/.env.local
+
+# Binaries
+ngrok

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polybacker Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            min-height: 100vh;
+        }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6); }
+        }
+        .pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+        @keyframes slide-up {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-up { animation: slide-up 0.3s ease-out; }
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tab-active {
+            border-bottom: 2px solid #818cf8;
+            color: #818cf8;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 3px; }
+    </style>
+</head>
+<body class="text-white">
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-indigo-500/10 to-transparent rounded-full blur-3xl animate-pulse"></div>
+        <div class="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-violet-500/10 to-transparent rounded-full blur-3xl animate-pulse" style="animation-delay:1s;"></div>
+    </div>
+
+    <div class="relative z-10">
+        <!-- Header -->
+        <header class="glass border-b border-white/10 sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center pulse-glow">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold tracking-tight">Polybacker</h1>
+                            <p class="text-sm text-gray-400 mono">Copy trading & arbitrage</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="glass px-4 py-2 rounded-lg mono text-sm">
+                            <span class="text-gray-400">API:</span>
+                            <span id="api-status" class="ml-2 text-amber-500">&#9679;</span>
+                            <span id="api-status-text">Connecting...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto px-6 py-8">
+            <!-- Tabs -->
+            <div class="flex gap-6 mb-8 border-b border-white/10">
+                <button onclick="switchTab('copy')" id="tab-copy" class="pb-3 px-1 font-semibold text-sm tab-active transition-all">Copy Trading</button>
+                <button onclick="switchTab('arb')" id="tab-arb" class="pb-3 px-1 font-semibold text-sm text-gray-400 hover:text-white transition-all">Arbitrage</button>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- COPY TRADING TAB -->
+            <!-- ============================================================ -->
+            <div id="panel-copy">
+                <!-- Copy Stats -->
+                <div class="grid grid-cols-4 gap-4 mb-8">
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono"><span id="copy-total-trades">0</span></div>
+                        <div class="text-sm text-gray-400">Trades Copied</div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-green-400">$<span id="copy-total-spent">0.00</span></div>
+                        <div class="text-sm text-gray-400">Total Invested</div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-yellow-400">$<span id="copy-daily-spend">0.00</span></div>
+                        <div class="text-sm text-gray-400">Spent Today</div>
+                        <div class="text-xs text-gray-500 mt-1 mono">/ $<span id="copy-daily-limit">500.00</span></div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-red-400"><span id="copy-failed">0</span></div>
+                        <div class="text-sm text-gray-400">Failed Trades</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-6">
+                    <!-- Followed Traders + Add -->
+                    <div class="glass rounded-xl overflow-hidden slide-up">
+                        <div class="p-4 border-b border-white/10 flex items-center justify-between">
+                            <h3 class="font-semibold text-sm">Followed Traders</h3>
+                            <span id="trader-count" class="text-xs glass px-3 py-1 rounded-full mono">0</span>
+                        </div>
+                        <!-- Add trader form -->
+                        <div class="p-3 border-b border-white/10">
+                            <div class="flex gap-2">
+                                <input id="new-trader-address" type="text" placeholder="0x..." class="flex-1 px-3 py-2 rounded-lg glass text-xs mono focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <button onclick="addTrader()" class="px-3 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg text-xs font-semibold transition-all">Add</button>
+                            </div>
+                        </div>
+                        <div id="traders-list" class="max-h-80 overflow-y-auto divide-y divide-white/5">
+                            <div class="p-6 text-center text-gray-500 text-sm">No traders followed yet</div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Copy Trades -->
+                    <div class="col-span-2 glass rounded-xl overflow-hidden slide-up">
+                        <div class="p-4 border-b border-white/10 flex items-center justify-between">
+                            <h3 class="font-semibold text-sm">Recent Copy Trades</h3>
+                            <div class="flex gap-2">
+                                <button onclick="startCopyTrading(false)" id="btn-copy-start" class="px-3 py-1.5 bg-green-500 hover:bg-green-600 rounded-lg text-xs font-semibold transition-all">Start</button>
+                                <button onclick="startCopyTrading(true)" class="px-3 py-1.5 glass hover:bg-white/10 rounded-lg text-xs font-semibold transition-all">Dry Run</button>
+                                <button onclick="stopCopyTrading()" id="btn-copy-stop" class="px-3 py-1.5 bg-red-500/50 hover:bg-red-500 rounded-lg text-xs font-semibold transition-all hidden">Stop</button>
+                            </div>
+                        </div>
+                        <div id="copy-trades-list" class="max-h-96 overflow-y-auto divide-y divide-white/5">
+                            <div class="p-8 text-center text-gray-500 text-sm">No copy trades yet. Start the bot to begin.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- ARBITRAGE TAB -->
+            <!-- ============================================================ -->
+            <div id="panel-arb" class="hidden">
+                <!-- Arb Stats -->
+                <div class="grid grid-cols-4 gap-4 mb-8">
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono"><span id="arb-total-trades">0</span></div>
+                        <div class="text-sm text-gray-400">Trades Executed</div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-green-400">$<span id="arb-total-spent">0.00</span></div>
+                        <div class="text-sm text-gray-400">Total Invested</div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-emerald-400">$<span id="arb-expected-profit">0.00</span></div>
+                        <div class="text-sm text-gray-400">Expected Profit</div>
+                    </div>
+                    <div class="glass rounded-xl p-5 slide-up">
+                        <div class="text-3xl font-bold mb-1 mono text-red-400"><span id="arb-failed">0</span></div>
+                        <div class="text-sm text-gray-400">Failed Trades</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-6">
+                    <!-- Controls + Log -->
+                    <div class="glass rounded-xl overflow-hidden slide-up">
+                        <div class="p-4 border-b border-white/10">
+                            <h3 class="font-semibold text-sm">Controls</h3>
+                        </div>
+                        <div class="p-4 space-y-3">
+                            <button onclick="startArbitrage(false)" id="btn-arb-start" class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 rounded-lg text-sm font-semibold transition-all">Start Arbitrage</button>
+                            <button onclick="startArbitrage(true)" class="w-full px-4 py-2 glass hover:bg-white/10 rounded-lg text-sm font-semibold transition-all">Dry Run</button>
+                            <button onclick="stopArbitrage()" id="btn-arb-stop" class="w-full px-4 py-2 bg-red-500/50 hover:bg-red-500 rounded-lg text-sm font-semibold transition-all hidden">Stop Arbitrage</button>
+                        </div>
+                        <div class="p-4 border-t border-white/10">
+                            <h4 class="font-semibold text-xs text-gray-400 mb-2">Activity Log</h4>
+                            <div id="arb-log" class="max-h-60 overflow-y-auto space-y-1 text-xs mono text-gray-400">
+                                <div>Waiting to start...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Arb Trades -->
+                    <div class="col-span-2 glass rounded-xl overflow-hidden slide-up">
+                        <div class="p-4 border-b border-white/10">
+                            <h3 class="font-semibold text-sm">Arbitrage Trades</h3>
+                        </div>
+                        <div id="arb-trades-list" class="max-h-96 overflow-y-auto divide-y divide-white/5">
+                            <div class="p-8 text-center text-gray-500 text-sm">No arbitrage trades yet.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let socket;
+        let currentTab = 'copy';
+        let copyRunning = false;
+        let arbRunning = false;
+
+        // =====================================================================
+        // Init
+        // =====================================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            connectSocket();
+            refreshAll();
+            setInterval(refreshAll, 10000);  // Refresh every 10s
+        });
+
+        function connectSocket() {
+            socket = io(API_URL);
+            socket.on('connect', () => {
+                document.getElementById('api-status').className = 'ml-2 text-green-500';
+                document.getElementById('api-status-text').textContent = 'Connected';
+            });
+            socket.on('disconnect', () => {
+                document.getElementById('api-status').className = 'ml-2 text-red-500';
+                document.getElementById('api-status-text').textContent = 'Disconnected';
+            });
+            socket.on('status', (data) => {
+                copyRunning = data.copy_trading === 'running';
+                arbRunning = data.arbitrage === 'running';
+                updateButtons();
+            });
+        }
+
+        async function refreshAll() {
+            await Promise.all([
+                loadStatus(),
+                loadCopyStats(),
+                loadTraders(),
+                loadCopyTrades(),
+                loadArbStats(),
+                loadArbTrades(),
+            ]);
+        }
+
+        // =====================================================================
+        // Tabs
+        // =====================================================================
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById('panel-copy').classList.toggle('hidden', tab !== 'copy');
+            document.getElementById('panel-arb').classList.toggle('hidden', tab !== 'arb');
+            document.getElementById('tab-copy').classList.toggle('tab-active', tab === 'copy');
+            document.getElementById('tab-copy').classList.toggle('text-gray-400', tab !== 'copy');
+            document.getElementById('tab-arb').classList.toggle('tab-active', tab === 'arb');
+            document.getElementById('tab-arb').classList.toggle('text-gray-400', tab !== 'arb');
+        }
+
+        // =====================================================================
+        // Status
+        // =====================================================================
+
+        async function loadStatus() {
+            try {
+                const resp = await fetch(`${API_URL}/api/status`);
+                const data = await resp.json();
+                copyRunning = data.copy_trading === 'running';
+                arbRunning = data.arbitrage === 'running';
+                updateButtons();
+            } catch (e) { /* silent */ }
+        }
+
+        function updateButtons() {
+            document.getElementById('btn-copy-start').classList.toggle('hidden', copyRunning);
+            document.getElementById('btn-copy-stop').classList.toggle('hidden', !copyRunning);
+            document.getElementById('btn-arb-start').classList.toggle('hidden', arbRunning);
+            document.getElementById('btn-arb-stop').classList.toggle('hidden', !arbRunning);
+        }
+
+        // =====================================================================
+        // Copy Trading
+        // =====================================================================
+
+        async function loadCopyStats() {
+            try {
+                const resp = await fetch(`${API_URL}/api/copy/stats`);
+                const s = await resp.json();
+                document.getElementById('copy-total-trades').textContent = s.total_trades;
+                document.getElementById('copy-total-spent').textContent = parseFloat(s.total_spent).toFixed(2);
+                document.getElementById('copy-daily-spend').textContent = parseFloat(s.daily_spend).toFixed(2);
+                document.getElementById('copy-daily-limit').textContent = parseFloat(s.daily_limit).toFixed(2);
+                document.getElementById('copy-failed').textContent = s.failed_trades;
+            } catch (e) { /* silent */ }
+        }
+
+        async function loadTraders() {
+            try {
+                const resp = await fetch(`${API_URL}/api/copy/traders`);
+                const traders = await resp.json();
+                const container = document.getElementById('traders-list');
+                document.getElementById('trader-count').textContent = traders.length;
+
+                if (traders.length === 0) {
+                    container.innerHTML = '<div class="p-6 text-center text-gray-500 text-sm">No traders followed yet</div>';
+                    return;
+                }
+
+                container.innerHTML = traders.map(t => `
+                    <div class="p-3 hover:bg-white/5 transition-colors flex items-center justify-between">
+                        <div>
+                            <div class="text-xs mono text-cyan-400">${t.address.slice(0,10)}...${t.address.slice(-6)}</div>
+                            <div class="text-xs text-gray-500">${t.alias || 'No alias'} &middot; ${t.total_copied} copies &middot; $${parseFloat(t.total_spent).toFixed(2)}</div>
+                        </div>
+                        <button onclick="removeTrader('${t.address}')" class="text-red-400 hover:text-red-300 text-xs px-2 py-1 glass rounded transition-all">Remove</button>
+                    </div>
+                `).join('');
+            } catch (e) { /* silent */ }
+        }
+
+        async function loadCopyTrades() {
+            try {
+                const resp = await fetch(`${API_URL}/api/copy/trades?limit=20`);
+                const trades = await resp.json();
+                const container = document.getElementById('copy-trades-list');
+
+                if (trades.length === 0) {
+                    container.innerHTML = '<div class="p-8 text-center text-gray-500 text-sm">No copy trades yet. Start the bot to begin.</div>';
+                    return;
+                }
+
+                container.innerHTML = trades.map(t => {
+                    const statusColor = t.status === 'executed' ? 'green' : (t.status === 'dry_run' ? 'yellow' : 'red');
+                    return `
+                    <div class="p-3 hover:bg-white/5 transition-colors flex items-center justify-between">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm truncate">${t.market || 'Unknown market'}</div>
+                            <div class="text-xs text-gray-500 mono">${t.timestamp.slice(0,19)} &middot; from ${(t.copied_from || '').slice(0,10)}...</div>
+                        </div>
+                        <div class="text-right ml-4 shrink-0">
+                            <div class="text-sm font-semibold mono">${t.side} $${parseFloat(t.amount).toFixed(2)}</div>
+                            <div class="text-xs text-${statusColor}-400">${t.status}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) { /* silent */ }
+        }
+
+        async function addTrader() {
+            const input = document.getElementById('new-trader-address');
+            const address = input.value.trim();
+            if (!address.startsWith('0x') || address.length !== 42) {
+                alert('Invalid Ethereum address');
+                return;
+            }
+            try {
+                await fetch(`${API_URL}/api/copy/traders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address }),
+                });
+                input.value = '';
+                loadTraders();
+            } catch (e) { alert('Failed to add trader'); }
+        }
+
+        async function removeTrader(address) {
+            try {
+                await fetch(`${API_URL}/api/copy/traders/${address}`, { method: 'DELETE' });
+                loadTraders();
+            } catch (e) { alert('Failed to remove trader'); }
+        }
+
+        async function startCopyTrading(dryRun) {
+            try {
+                await fetch(`${API_URL}/api/copy/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dry_run: dryRun }),
+                });
+                copyRunning = true;
+                updateButtons();
+            } catch (e) { alert('Failed to start: ' + e.message); }
+        }
+
+        async function stopCopyTrading() {
+            try {
+                await fetch(`${API_URL}/api/copy/stop`, { method: 'POST' });
+                copyRunning = false;
+                updateButtons();
+            } catch (e) { alert('Failed to stop'); }
+        }
+
+        // =====================================================================
+        // Arbitrage
+        // =====================================================================
+
+        async function loadArbStats() {
+            try {
+                const resp = await fetch(`${API_URL}/api/arb/stats`);
+                const s = await resp.json();
+                document.getElementById('arb-total-trades').textContent = s.total_trades;
+                document.getElementById('arb-total-spent').textContent = parseFloat(s.total_spent).toFixed(2);
+                document.getElementById('arb-expected-profit').textContent = parseFloat(s.total_expected_profit).toFixed(2);
+                document.getElementById('arb-failed').textContent = s.failed_trades;
+            } catch (e) { /* silent */ }
+        }
+
+        async function loadArbTrades() {
+            try {
+                const resp = await fetch(`${API_URL}/api/arb/trades?limit=20`);
+                const trades = await resp.json();
+                const container = document.getElementById('arb-trades-list');
+
+                if (trades.length === 0) {
+                    container.innerHTML = '<div class="p-8 text-center text-gray-500 text-sm">No arbitrage trades yet.</div>';
+                    return;
+                }
+
+                container.innerHTML = trades.map(t => {
+                    const statusColor = t.status === 'executed' ? 'green' : (t.status === 'dry_run' ? 'yellow' : 'red');
+                    return `
+                    <div class="p-3 hover:bg-white/5 transition-colors flex items-center justify-between">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm truncate">${t.market || 'Unknown market'}</div>
+                            <div class="text-xs text-gray-500 mono">${t.timestamp.slice(0,19)}</div>
+                        </div>
+                        <div class="text-right ml-4 shrink-0">
+                            <div class="text-sm font-semibold mono text-green-400">+$${parseFloat(t.expected_profit || 0).toFixed(2)}</div>
+                            <div class="text-xs text-${statusColor}-400">${t.status}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) { /* silent */ }
+        }
+
+        async function startArbitrage(dryRun) {
+            try {
+                await fetch(`${API_URL}/api/arb/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dry_run: dryRun }),
+                });
+                arbRunning = true;
+                updateButtons();
+            } catch (e) { alert('Failed to start: ' + e.message); }
+        }
+
+        async function stopArbitrage() {
+            try {
+                await fetch(`${API_URL}/api/arb/stop`, { method: 'POST' });
+                arbRunning = false;
+                updateButtons();
+            } catch (e) { alert('Failed to stop'); }
+        }
+    </script>
+</body>
+</html>

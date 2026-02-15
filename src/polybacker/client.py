@@ -1,0 +1,240 @@
+"""Polymarket API client wrapper.
+
+Wraps py-clob-client (CLOB API) and requests (Data API / Gamma API)
+into a single coherent interface.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Optional
+
+import requests
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import MarketOrderArgs, OrderType
+from py_clob_client.order_builder.constants import BUY, SELL
+
+from polybacker.config import Settings
+
+logger = logging.getLogger(__name__)
+
+# Rate limiting: track last request time per host
+_last_request: dict[str, float] = {}
+_MIN_REQUEST_INTERVAL = 0.25  # 250ms between requests to same host
+
+
+def _rate_limit(host: str):
+    """Simple rate limiter — sleep if we're requesting too fast."""
+    now = time.time()
+    last = _last_request.get(host, 0)
+    elapsed = now - last
+    if elapsed < _MIN_REQUEST_INTERVAL:
+        time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+    _last_request[host] = time.time()
+
+
+class PolymarketClient:
+    """Unified Polymarket API client."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Accept": "application/json",
+            "User-Agent": "polybacker/0.1.0",
+        })
+
+        # Initialize CLOB client
+        client_params = {
+            "host": settings.clob_host,
+            "key": settings.private_key,
+            "chain_id": settings.chain_id,
+            "signature_type": settings.signature_type,
+        }
+        if settings.funder:
+            client_params["funder"] = settings.funder
+
+        self.clob = ClobClient(**client_params)
+        self.clob.set_api_creds(self.clob.create_or_derive_api_creds())
+        logger.info("CLOB client initialized")
+
+    # -------------------------------------------------------------------------
+    # Data API — public endpoints for querying trades/positions by address
+    # -------------------------------------------------------------------------
+
+    def get_trader_trades(self, address: str, limit: int = 20) -> list[dict]:
+        """Get recent trades for a specific wallet address.
+
+        Uses: GET https://data-api.polymarket.com/trades?user={address}
+        """
+        _rate_limit(self.settings.data_host)
+        try:
+            resp = self._session.get(
+                f"{self.settings.data_host}/trades",
+                params={"user": address.lower(), "limit": limit},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.RequestException as e:
+            logger.error(f"Error fetching trades for {address[:10]}...: {e}")
+            return []
+
+    def get_trader_positions(self, address: str) -> list[dict]:
+        """Get current positions for a specific wallet address.
+
+        Uses: GET https://data-api.polymarket.com/positions?user={address}
+        """
+        _rate_limit(self.settings.data_host)
+        try:
+            resp = self._session.get(
+                f"{self.settings.data_host}/positions",
+                params={"user": address.lower()},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.RequestException as e:
+            logger.error(f"Error fetching positions for {address[:10]}...: {e}")
+            return []
+
+    def get_market_holders(self, condition_id: str, limit: int = 50) -> list[dict]:
+        """Get top holders for a market.
+
+        Uses: GET https://data-api.polymarket.com/holders
+        """
+        _rate_limit(self.settings.data_host)
+        try:
+            resp = self._session.get(
+                f"{self.settings.data_host}/holders",
+                params={"market": condition_id, "limit": limit},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.RequestException as e:
+            logger.error(f"Error fetching holders: {e}")
+            return []
+
+    # -------------------------------------------------------------------------
+    # Gamma API — market discovery and metadata
+    # -------------------------------------------------------------------------
+
+    def get_active_markets(self, limit: int = 50) -> list[dict]:
+        """Fetch active markets from Gamma API.
+
+        Uses: GET https://gamma-api.polymarket.com/markets
+        """
+        _rate_limit(self.settings.gamma_host)
+        try:
+            resp = self._session.get(
+                f"{self.settings.gamma_host}/markets",
+                params={"limit": limit, "active": "true"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.RequestException as e:
+            logger.error(f"Error fetching markets: {e}")
+            return []
+
+    def search_markets(self, query: str, limit: int = 20) -> list[dict]:
+        """Search markets by keyword."""
+        markets = self.get_active_markets(limit=100)
+        query_lower = query.lower()
+        return [
+            m for m in markets
+            if query_lower in m.get("question", "").lower()
+            or query_lower in m.get("description", "").lower()
+        ][:limit]
+
+    # -------------------------------------------------------------------------
+    # CLOB API — pricing, order books, trading
+    # -------------------------------------------------------------------------
+
+    def get_price(self, token_id: str, side: str = "BUY") -> Optional[float]:
+        """Get current price for a token."""
+        _rate_limit(self.settings.clob_host)
+        try:
+            price = self.clob.get_price(token_id, side)
+            return float(price) if price is not None else None
+        except Exception as e:
+            logger.error(f"Error getting price for {token_id[:16]}...: {e}")
+            return None
+
+    def get_midpoint(self, token_id: str) -> Optional[float]:
+        """Get midpoint price for a token."""
+        _rate_limit(self.settings.clob_host)
+        try:
+            mid = self.clob.get_midpoint(token_id)
+            return float(mid) if mid is not None else None
+        except Exception as e:
+            logger.error(f"Error getting midpoint: {e}")
+            return None
+
+    def get_order_book(self, token_id: str) -> Optional[dict]:
+        """Get order book for a token."""
+        _rate_limit(self.settings.clob_host)
+        try:
+            return self.clob.get_order_book(token_id)
+        except Exception as e:
+            logger.error(f"Error getting order book: {e}")
+            return None
+
+    def get_spread(self, token_id: str) -> Optional[dict]:
+        """Get bid/ask spread for a token."""
+        _rate_limit(self.settings.clob_host)
+        try:
+            return self.clob.get_spread(token_id)
+        except Exception as e:
+            logger.error(f"Error getting spread: {e}")
+            return None
+
+    def place_market_order(
+        self,
+        token_id: str,
+        amount: float,
+        side: str,
+        order_type: OrderType = OrderType.FOK,
+    ) -> Optional[dict]:
+        """Place a market order.
+
+        Args:
+            token_id: The conditional token ID.
+            amount: Amount in USDC.
+            side: 'BUY' or 'SELL' (use constants from py_clob_client).
+            order_type: FOK (fill-or-kill) or GTC (good-til-cancel).
+
+        Returns:
+            Order response dict, or None on failure.
+        """
+        _rate_limit(self.settings.clob_host)
+        try:
+            order_args = MarketOrderArgs(
+                token_id=token_id,
+                amount=amount,
+                side=side,
+                order_type=order_type,
+            )
+            signed_order = self.clob.create_market_order(order_args)
+            response = self.clob.post_order(signed_order, order_type)
+            logger.info(f"Order placed: {side} ${amount:.2f} of {token_id[:16]}...")
+            return response
+        except Exception as e:
+            logger.error(f"Error placing order: {e}")
+            return None
+
+    def get_balance_allowance(self, token_id: Optional[str] = None) -> Optional[dict]:
+        """Get balance and allowance info."""
+        try:
+            if token_id:
+                return self.clob.get_balance_allowance(token_id)
+            return None
+        except Exception as e:
+            logger.error(f"Error getting balance: {e}")
+            return None

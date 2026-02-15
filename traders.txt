@@ -1,0 +1,9 @@
+# Polybacker - Traders to Follow
+# Add one wallet address per line
+# Lines starting with # are ignored
+#
+# Find traders at: https://polymarket.com/leaderboard
+# Or use: polybacker discover --whales
+#
+# Example:
+# 0x1234567890abcdef1234567890abcdef12345678
