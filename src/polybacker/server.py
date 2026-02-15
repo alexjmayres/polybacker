@@ -79,6 +79,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     app.config["arb_thread"] = None
     app.config["fund_thread"] = None
     app.config["position_thread"] = None
+    app.config["whitelist_enabled"] = True  # Whitelist enforcement on by default
 
     # Create auth decorator bound to this app's JWT secret
     auth = require_auth(settings.jwt_secret)
@@ -241,7 +242,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             role = "owner"
 
         # Whitelist enforcement: owner is always allowed; others must be whitelisted
-        if not is_owner and not db.is_whitelisted(db_path, address):
+        if app.config.get("whitelist_enabled", True) and not is_owner and not db.is_whitelisted(db_path, address):
             return jsonify({"error": "Wallet not whitelisted. Contact the operator for access."}), 403
 
         # Create or get user
@@ -320,6 +321,31 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if db.remove_from_whitelist(db_path, address):
             return jsonify({"message": f"Removed {address} from whitelist"})
         return jsonify({"error": "Not found"}), 404
+
+    @app.route("/api/whitelist/settings")
+    @auth
+    @require_owner
+    def get_whitelist_settings():
+        """Get whitelist enforcement settings."""
+        return jsonify({
+            "enabled": app.config.get("whitelist_enabled", True),
+        })
+
+    @app.route("/api/whitelist/settings", methods=["PATCH"])
+    @auth
+    @require_owner
+    def update_whitelist_settings():
+        """Toggle whitelist enforcement on/off."""
+        data = request.json or {}
+        if "enabled" in data:
+            app.config["whitelist_enabled"] = bool(data["enabled"])
+            state = "enabled" if app.config["whitelist_enabled"] else "disabled"
+            logger.info(f"Whitelist enforcement {state} by {request.user_address}")
+            return jsonify({
+                "message": f"Whitelist enforcement {state}",
+                "enabled": app.config["whitelist_enabled"],
+            })
+        return jsonify({"error": "Missing 'enabled' field"}), 400
 
     # =========================================================================
     # Status

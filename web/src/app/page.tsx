@@ -5,11 +5,13 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { Header } from "@/components/Header";
 import { TabNav } from "@/components/TabNav";
+import type { Tab } from "@/components/TabNav";
 import { SummaryPanel } from "@/components/summary/SummaryPanel";
 import { CopyPanel } from "@/components/copy/CopyPanel";
 import { ArbPanel } from "@/components/arb/ArbPanel";
 import { PositionsPanel } from "@/components/positions/PositionsPanel";
 import { FundPanel } from "@/components/fund/FundPanel";
+import { AdminPanel } from "@/components/admin/AdminPanel";
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -219,9 +221,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
 /* ──────────────────────── dashboard ─────────────────────── */
 
 function Dashboard({ onExit }: { onExit: () => void }) {
-  const [activeTab, setActiveTab] = useState<
-    "summary" | "copy" | "arb" | "positions" | "fund"
-  >("summary");
+  const [activeTab, setActiveTab] = useState<Tab>("summary");
 
   return (
     <div className="min-h-screen">
@@ -234,6 +234,7 @@ function Dashboard({ onExit }: { onExit: () => void }) {
           {activeTab === "arb" && <ArbPanel />}
           {activeTab === "positions" && <PositionsPanel />}
           {activeTab === "fund" && <FundPanel />}
+          {activeTab === "admin" && <AdminPanel />}
         </main>
       </div>
     </div>
