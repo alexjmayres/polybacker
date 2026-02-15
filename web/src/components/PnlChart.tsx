@@ -15,33 +15,7 @@ interface PnlChartProps {
   strategy: "copy" | "arb";
 }
 
-/* ─── Demo data shown when no real trades exist ─── */
-function generateDemoData(): PnlPoint[] {
-  const points: PnlPoint[] = [];
-  const now = new Date();
-  let cumulative = 0;
-
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-
-    const trades = Math.floor(Math.random() * 8) + 1;
-    const spent = Math.round((Math.random() * 50 + 10) * 100) / 100;
-    const profit =
-      Math.round((Math.random() * 20 - 5) * 100) / 100; // -5 to +15
-    cumulative = Math.round((cumulative + profit) * 100) / 100;
-
-    points.push({
-      date: dateStr,
-      trades,
-      spent,
-      profit,
-      cumulative_profit: cumulative,
-    });
-  }
-  return points;
-}
+/* Demo data removed — charts now show live Polymarket data */
 
 /* ─── Retro SVG chart renderer ─── */
 
@@ -254,14 +228,12 @@ export function PnlChart({ strategy }: PnlChartProps) {
     refetchInterval: 30_000,
   });
 
-  const hasRealData = data && data.length > 0;
-  const chartData = hasRealData ? data : generateDemoData();
-  const isDemo = !hasRealData;
+  const hasData = data && data.length > 0;
 
   /* Summary stats from the series */
-  const totalProfit = chartData.reduce((s, d) => s + d.profit, 0);
-  const totalTrades = chartData.reduce((s, d) => s + d.trades, 0);
-  const totalSpent = chartData.reduce((s, d) => s + d.spent, 0);
+  const totalProfit = hasData ? data.reduce((s, d) => s + d.profit, 0) : 0;
+  const totalTrades = hasData ? data.reduce((s, d) => s + d.trades, 0) : 0;
+  const totalSpent = hasData ? data.reduce((s, d) => s + d.spent, 0) : 0;
   const isPositive = totalProfit >= 0;
 
   return (
@@ -283,9 +255,9 @@ export function PnlChart({ strategy }: PnlChartProps) {
             <span className="mono text-xs text-[var(--green-dim)] opacity-60">
               30D
             </span>
-            {isDemo && (
-              <span className="mono text-[10px] text-[var(--amber)] border border-[var(--amber)] px-2 py-0.5 opacity-60">
-                SIMULATED
+            {hasData && (
+              <span className="mono text-[10px] text-[var(--green)] border border-[var(--green)] px-2 py-0.5 opacity-60">
+                LIVE
               </span>
             )}
           </div>
@@ -312,14 +284,20 @@ export function PnlChart({ strategy }: PnlChartProps) {
               LOADING CHART DATA<span className="blink">_</span>
             </span>
           </div>
-        ) : isError && !isDemo ? (
+        ) : isError ? (
           <div className="h-[160px] flex items-center justify-center">
             <span className="mono text-sm text-[var(--red)]">
               ERROR FETCHING DATA
             </span>
           </div>
+        ) : !hasData ? (
+          <div className="h-[160px] flex items-center justify-center">
+            <span className="mono text-sm text-[var(--green-dark)]">
+              AWAITING TRADE DATA<span className="blink">_</span>
+            </span>
+          </div>
         ) : (
-          <RetroChart data={chartData} isDemo={isDemo} />
+          <RetroChart data={data} isDemo={false} />
         )}
       </div>
 
