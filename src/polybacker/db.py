@@ -306,6 +306,58 @@ def get_daily_spend(
         return row["total"]
 
 
+def get_pnl_series(
+    db_path: str,
+    strategy: Optional[str] = None,
+    user_address: Optional[str] = None,
+    days: int = 30,
+) -> list[dict]:
+    """Get daily PnL series for charting.
+
+    Returns a list of {date, trades, spent, profit, cumulative_profit} dicts.
+    For copy trades, profit = expected_profit. For arb trades, profit = expected_profit.
+    """
+    with _connect(db_path) as conn:
+        conditions = ["status IN ('executed', 'dry_run')"]
+        params: list = []
+
+        if strategy:
+            conditions.append("strategy = ?")
+            params.append(strategy)
+        if user_address:
+            conditions.append("user_address = ?")
+            params.append(user_address)
+
+        conditions.append(f"date(timestamp) >= date('now', '-{int(days)} days')")
+        where = " AND ".join(conditions)
+
+        rows = conn.execute(
+            f"""SELECT
+                date(timestamp) as date,
+                COUNT(*) as trades,
+                COALESCE(SUM(amount), 0) as spent,
+                COALESCE(SUM(expected_profit), 0) as profit
+            FROM trades
+            WHERE {where}
+            GROUP BY date(timestamp)
+            ORDER BY date(timestamp) ASC""",
+            params,
+        ).fetchall()
+
+        series = []
+        cumulative = 0.0
+        for row in rows:
+            cumulative += row["profit"]
+            series.append({
+                "date": row["date"],
+                "trades": row["trades"],
+                "spent": round(row["spent"], 2),
+                "profit": round(row["profit"], 2),
+                "cumulative_profit": round(cumulative, 2),
+            })
+        return series
+
+
 # --- Trader Operations ---
 
 def add_trader(

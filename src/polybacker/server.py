@@ -281,6 +281,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         stats["daily_limit"] = settings.max_daily_spend
         return jsonify(stats)
 
+    @app.route("/api/copy/pnl")
+    @auth
+    def copy_pnl():
+        days = request.args.get("days", 30, type=int)
+        series = db.get_pnl_series(
+            db_path, strategy="copy", user_address=request.user_address,
+            days=days,
+        )
+        return jsonify(series)
+
     # =========================================================================
     # Arbitrage Endpoints
     # =========================================================================
@@ -335,6 +345,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     @auth
     def arb_stats():
         return jsonify(db.get_arb_stats(db_path, user_address=request.user_address))
+
+    @app.route("/api/arb/pnl")
+    @auth
+    def arb_pnl():
+        days = request.args.get("days", 30, type=int)
+        series = db.get_pnl_series(
+            db_path, strategy="arbitrage", user_address=request.user_address,
+            days=days,
+        )
+        return jsonify(series)
 
     # =========================================================================
     # General Endpoints
