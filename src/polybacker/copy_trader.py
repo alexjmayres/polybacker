@@ -207,8 +207,35 @@ class CopyTrader:
     # Trade execution
     # -------------------------------------------------------------------------
 
+    def _calculate_limit_price(self, trade: dict, side: str) -> Optional[float]:
+        """Calculate limit price from the trader's execution price + max slippage.
+
+        For BUY: limit = trader_price * (1 + max_slippage) — willing to pay up to X% more
+        For SELL: limit = trader_price * (1 - max_slippage) — willing to sell down to X% less
+
+        Returns None if trader's price is unavailable.
+        """
+        trader_price = float(trade.get("price", 0) or 0)
+        if trader_price <= 0:
+            return None
+
+        slippage = self.settings.max_slippage
+
+        if side == "BUY":
+            limit = trader_price * (1.0 + slippage)
+            # Cap at 0.99 — Polymarket prices are 0–1
+            return min(round(limit, 4), 0.99)
+        else:
+            limit = trader_price * (1.0 - slippage)
+            # Floor at 0.01
+            return max(round(limit, 4), 0.01)
+
     def execute_copy(self, trade: dict, trader: dict) -> bool:
         """Copy a single trade.
+
+        Supports two modes:
+        - 'market': FOK market order (immediate fill or cancel)
+        - 'limit': GTC limit order at trader's price + max_slippage
 
         Returns True if the trade was executed (or logged in dry-run).
         """
@@ -225,20 +252,54 @@ class CopyTrader:
             return False
 
         clob_side = BUY if side == "BUY" else SELL
+        use_limit = self.settings.order_mode == "limit"
+        trader_price = float(trade.get("price", 0) or 0)
 
-        logger.info(
-            f"{'[DRY RUN] ' if self.dry_run else ''}"
-            f"Copying trade from {trader_address[:10]}... | "
-            f"{side} ${copy_size:.2f} | {market[:50]}"
-        )
+        # For limit orders, calculate the capped price and convert USDC to shares
+        limit_price = None
+        num_shares = 0.0
+        if use_limit:
+            limit_price = self._calculate_limit_price(trade, side)
+            if limit_price and limit_price > 0:
+                # Convert USDC amount to number of shares: shares = usdc / price
+                num_shares = round(copy_size / limit_price, 2)
+            else:
+                # Can't determine price — fall back to market order
+                use_limit = False
+                logger.warning(
+                    f"No trader price available — falling back to market order"
+                )
+
+        if use_limit:
+            logger.info(
+                f"{'[DRY RUN] ' if self.dry_run else ''}"
+                f"Copying trade from {trader_address[:10]}... | "
+                f"{side} {num_shares:.2f} shares @ {limit_price:.4f} "
+                f"(trader: {trader_price:.4f}, slip: {self.settings.max_slippage*100:.1f}%) | "
+                f"${copy_size:.2f} | {market[:50]}"
+            )
+        else:
+            logger.info(
+                f"{'[DRY RUN] ' if self.dry_run else ''}"
+                f"Copying trade from {trader_address[:10]}... | "
+                f"{side} ${copy_size:.2f} [MARKET] | {market[:50]}"
+            )
 
         status = "dry_run"
         if not self.dry_run:
-            result = self.client.place_market_order(
-                token_id=token_id,
-                amount=copy_size,
-                side=clob_side,
-            )
+            if use_limit:
+                result = self.client.place_limit_order(
+                    token_id=token_id,
+                    price=limit_price,
+                    size=num_shares,
+                    side=clob_side,
+                )
+            else:
+                result = self.client.place_market_order(
+                    token_id=token_id,
+                    amount=copy_size,
+                    side=clob_side,
+                )
             status = "executed" if result else "failed"
 
         # Record in DB
@@ -329,6 +390,10 @@ class CopyTrader:
                      f"(${self.settings.min_copy_size}-${self.settings.max_copy_size})")
         logger.info(f"Daily limit: ${self.settings.max_daily_spend}")
         logger.info(f"Poll interval: {self.settings.poll_interval}s")
+        if self.settings.order_mode == "limit":
+            logger.info(f"Order mode: LIMIT (GTC) — max slippage: {self.settings.max_slippage * 100:.1f}%")
+        else:
+            logger.info(f"Order mode: MARKET (FOK)")
         if self.dry_run:
             logger.info("DRY RUN MODE — no real trades will be placed")
 

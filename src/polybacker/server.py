@@ -552,6 +552,8 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             db_path, strategy="copy", user_address=request.user_address,
         )
         stats["daily_limit"] = settings.max_daily_spend
+        stats["order_mode"] = settings.order_mode
+        stats["max_slippage"] = settings.max_slippage
         return jsonify(stats)
 
     @app.route("/api/copy/pnl")

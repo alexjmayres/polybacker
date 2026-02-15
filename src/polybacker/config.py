@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     max_copy_size: float = Field(default=100.0, description="Maximum copy size in USDC")
     max_daily_spend: float = Field(default=500.0, description="Maximum total USDC spend per day")
     max_trade_age: int = Field(default=300, description="Max trade age in seconds to still copy")
+    order_mode: str = Field(default="limit", description="Order type: 'market' (FOK) or 'limit' (GTC with slippage cap)")
+    max_slippage: float = Field(default=0.02, description="Max slippage vs trader's price for limit orders (0.02 = 2%)")
 
     # --- Arbitrage ---
     min_profit_pct: float = Field(default=1.0, description="Minimum profit % to trigger arbitrage")
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     max_position_size: float = Field(default=100.0, description="Max position size in USDC")
 
     # --- General ---
-    poll_interval: int = Field(default=30, description="Seconds between polling cycles")
+    poll_interval: int = Field(default=15, description="Seconds between polling cycles")
     auto_execute: bool = Field(default=True, description="Auto-execute trades vs dry-run")
     db_path: str = Field(default="polybacker.db", description="Path to SQLite database")
 

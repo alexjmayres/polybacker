@@ -12,7 +12,7 @@ from typing import Optional
 
 import requests
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import MarketOrderArgs, OrderType
+from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from polybacker.config import Settings
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Rate limiting: track last request time per host
 _last_request: dict[str, float] = {}
-_MIN_REQUEST_INTERVAL = 0.25  # 250ms between requests to same host
+_MIN_REQUEST_INTERVAL = 0.15  # 150ms between requests to same host
 
 
 def _rate_limit(host: str):
@@ -227,6 +227,43 @@ class PolymarketClient:
             return response
         except Exception as e:
             logger.error(f"Error placing order: {e}")
+            return None
+
+    def place_limit_order(
+        self,
+        token_id: str,
+        price: float,
+        size: float,
+        side: str,
+    ) -> Optional[dict]:
+        """Place a GTC limit order at a specific price.
+
+        Args:
+            token_id: The conditional token ID.
+            price: Limit price (0.0001–0.9999).
+            size: Number of shares (not USDC amount).
+            side: BUY or SELL constant from py_clob_client.
+
+        Returns:
+            Order response dict, or None on failure.
+        """
+        _rate_limit(self.settings.clob_host)
+        try:
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=price,
+                size=size,
+                side=side,
+            )
+            signed_order = self.clob.create_order(order_args)
+            response = self.clob.post_order(signed_order, OrderType.GTC)
+            logger.info(
+                f"Limit order placed: {side} {size:.2f} shares @ {price:.4f} "
+                f"of {token_id[:16]}..."
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error placing limit order: {e}")
             return None
 
     def get_balance_allowance(self, token_id: Optional[str] = None) -> Optional[dict]:
