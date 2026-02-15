@@ -60,9 +60,15 @@ export function Providers({ children }: { children: ReactNode }) {
     () =>
       createAuthenticationAdapter({
         getNonce: async () => {
-          const res = await fetch(`${API_BASE}/api/auth/nonce`, { method: "POST" });
-          const data = await res.json();
-          return data.nonce;
+          try {
+            const res = await fetch(`${API_BASE}/api/auth/nonce`, { method: "POST" });
+            if (!res.ok) throw new Error(`Nonce request failed: ${res.status}`);
+            const data = await res.json();
+            return data.nonce;
+          } catch (err) {
+            console.error("[Polybacker] Failed to fetch nonce:", err);
+            throw err;
+          }
         },
 
         createMessage: ({ nonce, address, chainId }) => {
@@ -79,21 +85,29 @@ export function Providers({ children }: { children: ReactNode }) {
         },
 
         verify: async ({ message, signature }) => {
-          const res = await fetch(`${API_BASE}/api/auth/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message,
-              signature,
-            }),
-          });
+          try {
+            const res = await fetch(`${API_BASE}/api/auth/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message,
+                signature,
+              }),
+            });
 
-          if (!res.ok) return false;
+            if (!res.ok) {
+              console.error("[Polybacker] Verify failed:", res.status);
+              return false;
+            }
 
-          const data = await res.json();
-          localStorage.setItem("polybacker_token", data.token);
-          setAuthStatus("authenticated");
-          return true;
+            const data = await res.json();
+            localStorage.setItem("polybacker_token", data.token);
+            setAuthStatus("authenticated");
+            return true;
+          } catch (err) {
+            console.error("[Polybacker] Verify error:", err);
+            return false;
+          }
         },
 
         signOut: async () => {

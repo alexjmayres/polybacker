@@ -50,7 +50,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     static_dir = Path(__file__).parent.parent.parent / "server" / "static"
 
     app = Flask(__name__, static_folder=str(static_dir))
-    CORS(app)
+    CORS(app, origins=[
+        "https://polybacker.com",
+        "https://www.polybacker.com",
+        "http://localhost:3000",
+    ])
     socketio = SocketIO(app, cors_allowed_origins="*")
 
     db_path = settings.db_path
@@ -380,3 +384,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         })
 
     return app, socketio
+
+
+def create_wsgi_app():
+    """Zero-arg factory for gunicorn / Render deployment."""
+    from polybacker.config import load_settings
+
+    settings = load_settings()
+    app, _ = create_app(settings)
+    return app

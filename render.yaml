@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: polybacker-api
+    runtime: python
+    buildCommand: "pip install -e ."
+    startCommand: "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT 'polybacker.server:create_wsgi_app()'"
+    envVars:
+      - key: JWT_SECRET
+        sync: false
+      - key: POLYMARKET_PRIVATE_KEY
+        sync: false
