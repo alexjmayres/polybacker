@@ -688,6 +688,107 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             ).fetchall()
             return jsonify([dict(r) for r in rows])
 
+    @app.route("/api/positions/close-all", methods=["POST"])
+    @auth
+    @require_owner
+    def close_all_positions():
+        """Sell all open positions at market price.
+
+        Places FOK market sell orders for every open LONG position and
+        market buy orders for every open SHORT position to flatten the book.
+        """
+        from polybacker.client import PolymarketClient
+        from py_clob_client.order_builder.constants import BUY, SELL
+
+        positions = db.get_open_positions(db_path, user_address=request.user_address)
+        if not positions:
+            return jsonify({"error": "No open positions to close"}), 400
+
+        try:
+            client = PolymarketClient(settings)
+        except Exception as e:
+            return jsonify({"error": f"Failed to init trading client: {e}"}), 500
+
+        results = {"closed": 0, "failed": 0, "errors": []}
+
+        for pos in positions:
+            try:
+                token_id = pos["token_id"]
+                size = pos["size"]
+                if size <= 0:
+                    continue
+
+                # LONG → SELL, SHORT → BUY to close
+                close_side = SELL if pos["side"] == "LONG" else BUY
+                # Market orders use USDC amount = size * current_price
+                amount = round(size * max(pos["current_price"], 0.01), 2)
+                if amount < 0.01:
+                    amount = 0.01
+
+                resp = client.place_market_order(
+                    token_id=token_id,
+                    amount=amount,
+                    side=close_side,
+                )
+
+                if resp:
+                    db.close_position(db_path, pos["id"])
+                    results["closed"] += 1
+                    logger.info(f"Closed position {pos['id']}: {close_side} ${amount:.2f} of {pos['market']}")
+                else:
+                    results["failed"] += 1
+                    results["errors"].append(f"{pos['market']}: order failed")
+            except Exception as e:
+                results["failed"] += 1
+                results["errors"].append(f"{pos.get('market', 'unknown')}: {str(e)}")
+                logger.error(f"Failed to close position {pos['id']}: {e}")
+
+        return jsonify({
+            "message": f"Closed {results['closed']}/{len(positions)} positions",
+            **results,
+        })
+
+    @app.route("/api/positions/redeem-all", methods=["POST"])
+    @auth
+    @require_owner
+    def redeem_all_positions():
+        """Redeem (claim winnings from) resolved markets.
+
+        Scans open positions for markets where current_price is near 0 or 1
+        (indicating settlement), and marks them as closed since
+        Polymarket auto-redeems resolved positions to the wallet.
+
+        Positions with current_price >= 0.95 (winning) or <= 0.05 (losing)
+        are considered resolved and will be cleaned up from the tracker.
+        """
+        positions = db.get_open_positions(db_path, user_address=request.user_address)
+        if not positions:
+            return jsonify({"error": "No open positions"}), 400
+
+        results = {"redeemed": 0, "skipped": 0}
+
+        for pos in positions:
+            price = pos["current_price"]
+            # A resolved market has prices near 0 or 1
+            is_resolved = price >= 0.95 or price <= 0.05
+
+            if is_resolved:
+                db.close_position(db_path, pos["id"])
+                results["redeemed"] += 1
+                side = pos["side"]
+                won = (side == "LONG" and price >= 0.95) or (side == "SHORT" and price <= 0.05)
+                outcome = "WON" if won else "LOST"
+                logger.info(
+                    f"Redeemed position {pos['id']}: {pos['market']} — {outcome}"
+                )
+            else:
+                results["skipped"] += 1
+
+        return jsonify({
+            "message": f"Redeemed {results['redeemed']} positions ({results['skipped']} still active)",
+            **results,
+        })
+
     # =========================================================================
     # STF Fund Endpoints
     # =========================================================================

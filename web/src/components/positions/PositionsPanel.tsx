@@ -1,7 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Position {
   id: number;
@@ -26,7 +28,32 @@ interface PositionSummary {
   unrealized_pnl: number;
 }
 
+interface ActionResult {
+  message: string;
+  closed?: number;
+  redeemed?: number;
+  failed?: number;
+  skipped?: number;
+  errors?: string[];
+}
+
+const REFRESH_OPTIONS = [
+  { label: "5 MIN", value: 5 * 60 * 1000 },
+  { label: "15 MIN", value: 15 * 60 * 1000 },
+  { label: "30 MIN", value: 30 * 60 * 1000 },
+  { label: "1 HOUR", value: 60 * 60 * 1000 },
+  { label: "3 HOURS", value: 3 * 60 * 60 * 1000 },
+  { label: "6 HOURS", value: 6 * 60 * 60 * 1000 },
+] as const;
+
 export function PositionsPanel() {
+  const { isOwner } = useAuth();
+  const queryClient = useQueryClient();
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [autoRedeem, setAutoRedeem] = useState(false);
+  const [redeemInterval, setRedeemInterval] = useState(REFRESH_OPTIONS[1].value); // 15 min default
+  const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
+
   const { data: positions = [], isLoading } = useQuery<Position[]>({
     queryKey: ["positions"],
     queryFn: () => apiJson("/api/positions"),
@@ -37,6 +64,44 @@ export function PositionsPanel() {
     queryKey: ["positions-summary"],
     queryFn: () => apiJson("/api/positions/summary"),
     refetchInterval: 15000,
+  });
+
+  // Auto-redeem query — only active when toggle is on
+  useQuery({
+    queryKey: ["auto-redeem"],
+    queryFn: async () => {
+      const result = await apiJson<ActionResult>("/api/positions/redeem-all", {
+        method: "POST",
+      });
+      if (result.redeemed && result.redeemed > 0) {
+        queryClient.invalidateQueries({ queryKey: ["positions"] });
+        queryClient.invalidateQueries({ queryKey: ["positions-summary"] });
+      }
+      return result;
+    },
+    refetchInterval: autoRedeem ? redeemInterval : false,
+    enabled: autoRedeem && isOwner,
+    retry: false,
+  });
+
+  const closeAllMutation = useMutation({
+    mutationFn: () =>
+      apiJson<ActionResult>("/api/positions/close-all", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      queryClient.invalidateQueries({ queryKey: ["positions-summary"] });
+      setConfirmClose(false);
+    },
+    onError: () => setConfirmClose(false),
+  });
+
+  const redeemAllMutation = useMutation({
+    mutationFn: () =>
+      apiJson<ActionResult>("/api/positions/redeem-all", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      queryClient.invalidateQueries({ queryKey: ["positions-summary"] });
+    },
   });
 
   const timeAgo = (ts: string) => {
@@ -57,6 +122,9 @@ export function PositionsPanel() {
     if (cost <= 0) return "0.0";
     return ((pnl / cost) * 100).toFixed(1);
   };
+
+  const currentIntervalLabel =
+    REFRESH_OPTIONS.find((o) => o.value === redeemInterval)?.label ?? "15 MIN";
 
   const statItems = [
     {
@@ -94,6 +162,160 @@ export function PositionsPanel() {
           </div>
         ))}
       </div>
+
+      {/* Action Buttons (Owner Only) */}
+      {isOwner && (
+        <div className="glass rounded-none p-4 sm:p-5">
+          <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-4">
+            // POSITION CONTROLS
+          </h3>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Close All Positions — big red button */}
+            {!confirmClose ? (
+              <button
+                onClick={() => setConfirmClose(true)}
+                disabled={positions.length === 0 || closeAllMutation.isPending}
+                className="px-4 py-2.5 border-2 border-[var(--red)] text-[var(--red)] font-bold mono text-sm
+                  hover:bg-[var(--red)] hover:text-black transition-colors uppercase tracking-wider
+                  disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--red)]"
+              >
+                CLOSE ALL POSITIONS
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="mono text-[10px] text-[var(--red)] blink">
+                  CONFIRM CLOSE ALL?
+                </span>
+                <button
+                  onClick={() => closeAllMutation.mutate()}
+                  disabled={closeAllMutation.isPending}
+                  className="px-3 py-2 bg-[var(--red)] text-black font-bold mono text-sm
+                    hover:brightness-110 transition-colors uppercase"
+                >
+                  {closeAllMutation.isPending ? "CLOSING..." : "YES, CLOSE ALL"}
+                </button>
+                <button
+                  onClick={() => setConfirmClose(false)}
+                  className="px-3 py-2 border border-[var(--green-dark)] text-[var(--green-dark)] mono text-sm
+                    hover:border-[var(--green)] hover:text-[var(--green)] transition-colors uppercase"
+                >
+                  CANCEL
+                </button>
+              </div>
+            )}
+
+            {/* Redeem All */}
+            <button
+              onClick={() => redeemAllMutation.mutate()}
+              disabled={positions.length === 0 || redeemAllMutation.isPending}
+              className="px-4 py-2.5 border-2 border-[var(--amber)] text-[var(--amber)] font-bold mono text-sm
+                hover:bg-[var(--amber)] hover:text-black transition-colors uppercase tracking-wider
+                disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--amber)]"
+            >
+              {redeemAllMutation.isPending ? "REDEEMING..." : "REDEEM ALL"}
+            </button>
+
+            {/* Divider */}
+            <div className="hidden sm:block w-px h-8 bg-[rgba(0,255,65,0.15)]" />
+
+            {/* Auto-Redeem Toggle */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setAutoRedeem(!autoRedeem)}
+                className="flex items-center gap-2"
+              >
+                <div
+                  className={`w-8 h-4 rounded-full relative transition-colors ${
+                    autoRedeem
+                      ? "bg-[var(--amber)]"
+                      : "bg-[rgba(0,255,65,0.15)]"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${
+                      autoRedeem
+                        ? "left-4 bg-black"
+                        : "left-0.5 bg-[var(--green-dark)]"
+                    }`}
+                  />
+                </div>
+                <span
+                  className={`mono text-[10px] uppercase tracking-wider ${
+                    autoRedeem ? "text-[var(--amber)]" : "text-[var(--green-dark)]"
+                  }`}
+                >
+                  AUTO-REDEEM
+                </span>
+              </button>
+
+              {/* Interval Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowIntervalDropdown(!showIntervalDropdown)}
+                  disabled={!autoRedeem}
+                  className={`px-2 py-1 border mono text-[10px] uppercase tracking-wider transition-colors
+                    ${
+                      autoRedeem
+                        ? "border-[var(--amber)] text-[var(--amber)] hover:bg-[rgba(255,176,0,0.1)]"
+                        : "border-[rgba(0,255,65,0.15)] text-[var(--green-dark)] cursor-not-allowed"
+                    }`}
+                >
+                  {currentIntervalLabel} ▾
+                </button>
+                {showIntervalDropdown && autoRedeem && (
+                  <div className="absolute top-full left-0 mt-1 z-50 border border-[var(--amber)] bg-black min-w-[100px]">
+                    {REFRESH_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          setRedeemInterval(opt.value);
+                          setShowIntervalDropdown(false);
+                        }}
+                        className={`block w-full text-left px-3 py-1.5 mono text-[10px] uppercase tracking-wider transition-colors
+                          hover:bg-[rgba(255,176,0,0.15)] ${
+                            opt.value === redeemInterval
+                              ? "text-[var(--amber)] bg-[rgba(255,176,0,0.1)]"
+                              : "text-[var(--green)]"
+                          }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Status Messages */}
+          {closeAllMutation.isSuccess && (
+            <div className="mt-3 mono text-[10px] text-[var(--green)]">
+              {closeAllMutation.data.message}
+            </div>
+          )}
+          {closeAllMutation.isError && (
+            <div className="mt-3 mono text-[10px] text-[var(--red)]">
+              ERROR: {(closeAllMutation.error as Error).message}
+            </div>
+          )}
+          {redeemAllMutation.isSuccess && (
+            <div className="mt-3 mono text-[10px] text-[var(--amber)]">
+              {redeemAllMutation.data.message}
+            </div>
+          )}
+          {redeemAllMutation.isError && (
+            <div className="mt-3 mono text-[10px] text-[var(--red)]">
+              ERROR: {(redeemAllMutation.error as Error).message}
+            </div>
+          )}
+          {autoRedeem && (
+            <div className="mt-3 mono text-[10px] text-[var(--amber)]">
+              AUTO-REDEEM ACTIVE — checking every {currentIntervalLabel}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Positions Table */}
       <div className="glass rounded-none p-4 sm:p-5">
