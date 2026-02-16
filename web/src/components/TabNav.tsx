@@ -11,8 +11,8 @@ interface TabNavProps {
 
 const tabs: { key: Tab; label: string; ownerOnly?: boolean }[] = [
   { key: "summary", label: "[SUMMARY]" },
-  { key: "copy", label: "[COPY]" },
-  { key: "arb", label: "[ARB]" },
+  { key: "copy", label: "[COPY TRADE]" },
+  { key: "arb", label: "[ARBITRAGE]" },
   { key: "positions", label: "[POSITIONS]" },
   { key: "fund", label: "[STF FUNDS]" },
   { key: "admin", label: "[ADMIN]", ownerOnly: true },

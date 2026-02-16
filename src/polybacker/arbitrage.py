@@ -25,10 +25,12 @@ class ArbitrageScanner:
         settings: Settings,
         client: PolymarketClient,
         dry_run: bool = False,
+        user_address: str = "",
     ):
         self.settings = settings
         self.client = client
         self.dry_run = dry_run
+        self.user_address = user_address
         self.db_path = settings.db_path
         self._running = False
 
@@ -106,6 +108,7 @@ class ArbitrageScanner:
                     price=opportunity[f"{label.lower()}_price"],
                     expected_profit=expected_profit / 2,
                     status="dry_run",
+                    user_address=self.user_address,
                 )
             return True
 
@@ -143,6 +146,7 @@ class ArbitrageScanner:
                 expected_profit=expected_profit / 2,
                 status="executed" if ok else "failed",
                 notes="" if ok else "Order execution failed",
+                user_address=self.user_address,
             )
 
         if not success:

@@ -29,10 +29,12 @@ class CopyTrader:
         settings: Settings,
         client: PolymarketClient,
         dry_run: bool = False,
+        user_address: str = "",
     ):
         self.settings = settings
         self.client = client
         self.dry_run = dry_run
+        self.user_address = user_address
         self.db_path = settings.db_path
         self._running = False
 
@@ -313,6 +315,7 @@ class CopyTrader:
             copied_from=trader_address.lower(),
             original_trade_id=trade_id,
             status=status,
+            user_address=self.user_address,
         )
 
         # Update trader stats

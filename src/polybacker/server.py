@@ -403,7 +403,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/copy/start", methods=["POST"])
     @auth
-    @require_owner
     def copy_start():
         if app.config["copy_thread"] and app.config["copy_thread"].is_alive():
             return jsonify({"error": "Copy trading already running"}), 400
@@ -415,7 +414,10 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         try:
             client = PolymarketClient(settings)
-            trader = CopyTrader(settings=settings, client=client, dry_run=dry_run)
+            trader = CopyTrader(
+                settings=settings, client=client, dry_run=dry_run,
+                user_address=request.user_address,
+            )
             trader.load_traders_from_file()
             app.config["copy_trader"] = trader
 
@@ -432,7 +434,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/copy/stop", methods=["POST"])
     @auth
-    @require_owner
     def copy_stop():
         trader = app.config.get("copy_trader")
         if trader:
@@ -590,7 +591,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/arb/start", methods=["POST"])
     @auth
-    @require_owner
     def arb_start():
         if app.config["arb_thread"] and app.config["arb_thread"].is_alive():
             return jsonify({"error": "Arbitrage already running"}), 400
@@ -602,7 +602,10 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         try:
             client = PolymarketClient(settings)
-            scanner = ArbitrageScanner(settings=settings, client=client, dry_run=dry_run)
+            scanner = ArbitrageScanner(
+                settings=settings, client=client, dry_run=dry_run,
+                user_address=request.user_address,
+            )
             app.config["arb_scanner"] = scanner
 
             thread = threading.Thread(target=scanner.run, daemon=True)
@@ -618,7 +621,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/arb/stop", methods=["POST"])
     @auth
-    @require_owner
     def arb_stop():
         scanner = app.config.get("arb_scanner")
         if scanner:
@@ -690,7 +692,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/positions/close-all", methods=["POST"])
     @auth
-    @require_owner
     def close_all_positions():
         """Sell all open positions at market price.
 
@@ -750,7 +751,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/positions/redeem-all", methods=["POST"])
     @auth
-    @require_owner
     def redeem_all_positions():
         """Redeem (claim winnings from) resolved markets.
 
@@ -964,9 +964,8 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/funds/engine/start", methods=["POST"])
     @auth
-    @require_owner
     def fund_engine_start():
-        """Start the fund manager engine (owner only)."""
+        """Start the fund manager engine."""
         if app.config["fund_thread"] and app.config["fund_thread"].is_alive():
             return jsonify({"error": "Fund manager already running"}), 400
 
@@ -990,7 +989,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     @app.route("/api/funds/engine/stop", methods=["POST"])
     @auth
-    @require_owner
     def fund_engine_stop():
         """Stop the fund manager engine."""
         fm = app.config.get("fund_manager")

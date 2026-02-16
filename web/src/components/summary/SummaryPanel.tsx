@@ -146,40 +146,42 @@ export function SummaryPanel() {
           <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-3">
             // WALLET BALANCES
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-                USDCe
+          <div className="flex items-end gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 flex-1">
+              <div>
+                <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                  USDCe
+                </div>
+                <div className="text-lg font-bold mono text-[var(--cyan)]">
+                  ${balances.usdc_e_usd_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[9px] mono text-[var(--green-dark)]">
+                  {balances.usdc_e_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDCe
+                </div>
               </div>
-              <div className="text-lg font-bold mono text-[var(--cyan)]">
-                ${balances.usdc_e_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div>
+                <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                  POL
+                </div>
+                <div className="text-lg font-bold mono text-[var(--amber)]">
+                  ${balances.pol_usd_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[9px] mono text-[var(--green-dark)]">
+                  {balances.pol_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} POL @ ${balances.pol_price_usd.toFixed(4)}
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-                POL
-              </div>
-              <div className="text-lg font-bold mono text-[var(--amber)]">
-                {balances.pol_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
-              </div>
-              <div className="text-[9px] mono text-[var(--green-dark)]">
-                @ ${balances.pol_price_usd.toFixed(4)} = ${balances.pol_usd_value.toFixed(2)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-                POL (USD)
-              </div>
-              <div className="text-lg font-bold mono text-[var(--amber)]">
-                ${balances.pol_usd_value.toFixed(2)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-                TOTAL (USD)
-              </div>
-              <div className="text-lg font-bold mono text-[var(--green)]">
-                ${balances.total_usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div className="col-span-2 sm:col-span-1 flex items-center justify-center sm:justify-end">
+                <div className="text-center sm:text-right">
+                  <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                    TOTAL
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-bold mono text-[var(--red)]">
+                    ${balances.total_usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[9px] mono text-[var(--green-dark)]">
+                    USD
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
-import { useAuth } from "@/hooks/useAuth";
 
 interface Position {
   id: number;
@@ -47,7 +46,6 @@ const REFRESH_OPTIONS = [
 ] as const;
 
 export function PositionsPanel() {
-  const { isOwner } = useAuth();
   const queryClient = useQueryClient();
   const [confirmClose, setConfirmClose] = useState(false);
   const [autoRedeem, setAutoRedeem] = useState(false);
@@ -80,7 +78,7 @@ export function PositionsPanel() {
       return result;
     },
     refetchInterval: autoRedeem ? redeemInterval : false,
-    enabled: autoRedeem && isOwner,
+    enabled: autoRedeem,
     retry: false,
   });
 
@@ -163,9 +161,8 @@ export function PositionsPanel() {
         ))}
       </div>
 
-      {/* Action Buttons (Owner Only) */}
-      {isOwner && (
-        <div className="glass rounded-none p-4 sm:p-5">
+      {/* Action Buttons */}
+      <div className="glass rounded-none p-4 sm:p-5">
           <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-4">
             // POSITION CONTROLS
           </h3>
@@ -315,7 +312,6 @@ export function PositionsPanel() {
             </div>
           )}
         </div>
-      )}
 
       {/* Positions Table */}
       <div className="glass rounded-none p-4 sm:p-5">

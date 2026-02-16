@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiJson } from "@/lib/api";
-import { useAuth } from "@/hooks/useAuth";
 
 interface Status {
   copy_trading: string;
@@ -10,7 +9,6 @@ interface Status {
 }
 
 export function ArbControls() {
-  const { isOwner } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: status } = useQuery<Status>({
@@ -34,8 +32,6 @@ export function ArbControls() {
     mutationFn: () => apiFetch("/api/arb/stop", { method: "POST" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["status"] }),
   });
-
-  if (!isOwner) return null;
 
   return (
     <div className="glass rounded-none p-5">
