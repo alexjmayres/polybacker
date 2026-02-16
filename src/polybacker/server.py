@@ -1238,6 +1238,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             polymarket_address=pm_address,
         )
 
+        # Clear cached PM address & portfolio so they pick up the new address
+        user_lower = request.user_address.lower()
+        _pm_address_cache.pop(user_lower, None)
+        _portfolio_cache.pop(user_lower, None)
+        _balance_cache.pop(user_lower, None)
+
         return jsonify({"message": "API credentials saved"})
 
     @app.route("/api/settings/api-creds", methods=["DELETE"])
@@ -1245,6 +1251,10 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     def delete_api_creds():
         """Remove the user's stored API credentials."""
         db.delete_user_api_creds(db_path, request.user_address)
+        user_lower = request.user_address.lower()
+        _pm_address_cache.pop(user_lower, None)
+        _portfolio_cache.pop(user_lower, None)
+        _balance_cache.pop(user_lower, None)
         return jsonify({"message": "API credentials removed"})
 
     # =========================================================================
@@ -1430,16 +1440,25 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                     seen.add(a)
                     candidates.append(a)
 
-        # Priority order: explicit env/config > funder > CREATE2 proxy > EOA
-        _add(settings.polymarket_address)
-        _add(settings.funder)
+        # 1) Check per-user stored API creds (polymarket_address)
+        user_creds = db.get_user_api_creds(db_path, eoa_lower)
+        _add(user_creds.get("polymarket_address"))
+
+        # 2) Check user preferences
+        prefs = db.get_user_preferences(db_path, eoa_lower)
+        _add(prefs.get("polymarket_address"))
+
+        # 3) Only use server-level env/config addresses for the OWNER wallet.
+        #    Other users should NOT inherit the owner's PM addresses.
+        is_owner_wallet = owner_address and eoa_lower == owner_address
+        if is_owner_wallet:
+            _add(settings.polymarket_address)
+            _add(settings.funder)
+
+        # 4) CREATE2 proxy and EOA itself (always checked)
         proxy = _get_proxy_for(eoa_lower)
         _add(proxy)
         _add(eoa_lower)
-
-        # Also check user preferences
-        prefs = db.get_user_preferences(db_path, eoa_lower)
-        _add(prefs.get("polymarket_address"))
 
         if not candidates:
             candidates = [eoa_lower]

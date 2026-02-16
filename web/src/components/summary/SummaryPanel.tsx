@@ -136,10 +136,20 @@ export function SummaryPanel() {
             <div className="text-lg font-bold mono text-[var(--magenta)]">
               ${(portfolio?.proxy_usdc_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[9px] mono text-[var(--green-dark)]">
-              {pmPositions > 0 ? `${pmPositions} positions ($${pmValue.toFixed(2)})` : (
-                portfolio?.proxy_usdc_balance === 0 ? "deposit USDCe to trade" : `${pmPositions} positions`
-              )}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] mono text-[var(--green-dark)]">
+                {pmPositions > 0 ? `${pmPositions} positions ($${pmValue.toFixed(2)})` : (
+                  portfolio?.proxy_usdc_balance === 0 ? "deposit USDC to trade" : `${pmPositions} positions`
+                )}
+              </span>
+              <a
+                href="https://polymarket.com/deposit"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-[9px] mono font-bold text-black bg-[var(--green)] px-2 py-0.5 hover:bg-[var(--green-bright)] transition-all"
+              >
+                DEPOSIT
+              </a>
             </div>
           </div>
           <div className="flex items-center justify-center sm:justify-end">
