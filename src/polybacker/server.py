@@ -575,16 +575,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     def _get_pm_wallet(user_addr: str) -> str:
         """Get the best Polymarket wallet address for live data queries.
 
-        Priority: user preference > env var > owner EOA.
+        Uses the auto-discovery system to find the correct trading address.
         """
-        prefs = db.get_user_preferences(db_path, user_addr)
-        pref_addr = prefs.get("polymarket_address", "")
-        if pref_addr and pref_addr.startswith("0x"):
-            return pref_addr
-        env_addr = settings.polymarket_address or ""
-        if env_addr and env_addr.startswith("0x"):
-            return env_addr
-        return user_addr
+        return _discover_pm_address(user_addr)
 
     @app.route("/api/copy/pnl")
     @auth
@@ -1247,6 +1240,98 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             _proxy_cache[eoa] = proxy
         return proxy
 
+    # Cache for auto-discovered Polymarket trading address per user
+    _pm_address_cache: dict[str, str] = {}
+
+    def _discover_pm_address(eoa: str) -> str:
+        """Auto-discover the Polymarket trading address for a Web3 wallet.
+
+        Builds a list of candidate addresses (env var, funder, CREATE2 proxy, EOA)
+        and queries the Polymarket Data API to find which one actually has activity.
+        The result is cached permanently for the session.
+        """
+        import requests as req
+
+        eoa_lower = eoa.lower()
+
+        # Return cached result
+        if eoa_lower in _pm_address_cache:
+            return _pm_address_cache[eoa_lower]
+
+        # Build unique candidate addresses to probe
+        candidates = []
+        seen = set()
+
+        def _add(addr: str | None):
+            if addr and addr.startswith("0x") and len(addr) == 42:
+                a = addr.lower()
+                if a not in seen:
+                    seen.add(a)
+                    candidates.append(a)
+
+        # Priority order: explicit env/config > funder > CREATE2 proxy > EOA
+        _add(settings.polymarket_address)
+        _add(settings.funder)
+        proxy = _get_proxy_for(eoa_lower)
+        _add(proxy)
+        _add(eoa_lower)
+
+        # Also check user preferences
+        prefs = db.get_user_preferences(db_path, eoa_lower)
+        _add(prefs.get("polymarket_address"))
+
+        if not candidates:
+            candidates = [eoa_lower]
+
+        # Probe each candidate — check trades endpoint (fast, lightweight)
+        for addr in candidates:
+            try:
+                resp = req.get(
+                    f"{settings.data_host}/trades",
+                    params={"user": addr, "limit": 1},
+                    timeout=10,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.ok:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        logger.info(
+                            f"Auto-discovered Polymarket address for {eoa_lower[:10]}...: {addr}"
+                        )
+                        _pm_address_cache[eoa_lower] = addr
+                        return addr
+            except Exception:
+                continue
+
+        # If no candidate has activity, check positions too (user might only hold, no trades)
+        for addr in candidates:
+            try:
+                resp = req.get(
+                    f"{settings.data_host}/positions",
+                    params={"user": addr},
+                    timeout=10,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.ok:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        logger.info(
+                            f"Auto-discovered Polymarket address (via positions) for {eoa_lower[:10]}...: {addr}"
+                        )
+                        _pm_address_cache[eoa_lower] = addr
+                        return addr
+            except Exception:
+                continue
+
+        # No activity found on any address — default to first candidate
+        # (env override or CREATE2 proxy or EOA)
+        fallback = candidates[0]
+        _pm_address_cache[eoa_lower] = fallback
+        logger.info(
+            f"No Polymarket activity found for {eoa_lower[:10]}..., using fallback: {fallback}"
+        )
+        return fallback
+
     def _fetch_polymarket_data(address_list: list[str], data_host: str):
         """Fetch positions and trades from Polymarket Data API, trying multiple addresses."""
         import requests as req
@@ -1334,8 +1419,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     def get_portfolio():
         """Get the user's live Polymarket portfolio: positions, trade history, and balance.
 
-        Queries the user's configured Polymarket trading address (from env var,
-        user preferences, or falls back to EOA + proxy resolution).
+        Auto-discovers the correct Polymarket trading address by probing
+        candidate addresses (env var, funder, CREATE2 proxy, EOA) and caching
+        whichever one has actual Polymarket activity.
         """
         import time as _time
         import requests as req
@@ -1348,37 +1434,18 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             if now - cached_time < _PORTFOLIO_CACHE_TTL:
                 return jsonify(cached_data)
 
-        # Build list of addresses to query for Polymarket data
-        addresses = []
+        # Auto-discover the correct Polymarket trading address
+        pm_address = _discover_pm_address(wallet)
+        addresses = [pm_address]
 
-        # 1. Check user preferences for a configured Polymarket address
-        prefs = db.get_user_preferences(db_path, wallet)
-        pref_pm_addr = prefs.get("polymarket_address", "")
-
-        # 2. Check settings / env var for a global Polymarket address
-        env_pm_addr = settings.polymarket_address or ""
-
-        # Use preference first, then env var, then fall back to EOA + proxy
-        if pref_pm_addr and pref_pm_addr.startswith("0x"):
-            addresses.append(pref_pm_addr)
-        elif env_pm_addr and env_pm_addr.startswith("0x"):
-            addresses.append(env_pm_addr)
-        else:
-            # Fall back to EOA + resolved proxy
-            addresses.append(wallet)
-            proxy = _get_proxy_for(wallet)
-            if proxy:
-                addresses.append(proxy)
-
-        # Fetch data from resolved addresses
+        # Fetch positions and trades from the discovered address
         positions, trades = _fetch_polymarket_data(addresses, settings.data_host)
 
         total_invested = sum(p["cost"] for p in positions)
         total_current_value = sum(p["value"] for p in positions)
         total_pnl = sum(p["pnl"] for p in positions)
 
-        # Check USDCe balance on the primary Polymarket trading address
-        pm_address = addresses[0] if addresses else None
+        # Check USDCe balance on the Polymarket trading address
         proxy_usdc_balance = 0.0
         if pm_address and pm_address.lower() != wallet.lower():
             # Only check if the PM address is different from the EOA wallet
