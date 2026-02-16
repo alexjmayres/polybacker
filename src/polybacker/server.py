@@ -477,10 +477,10 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         """Update per-trader copy settings.
 
         Accepts JSON with any subset of:
-        {copy_percentage, min_copy_size, max_copy_size, max_daily_spend, active}
+        {copy_percentage, min_copy_size, max_copy_size, max_daily_spend, limit_order_pct, active}
         """
         data = request.json or {}
-        valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "active"}
+        valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "active"}
         updates = {}
         for key in valid_keys:
             if key in data:
@@ -1141,18 +1141,37 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         except Exception as e:
             logger.warning(f"Failed to fetch USDCe balance: {e}")
 
-        # Fetch POL price in USD from CoinGecko
+        # Fetch POL price in USD — try multiple sources
         pol_price_usd = 0.0
         try:
-            price_resp = req.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "matic-network", "vs_currencies": "usd"},
-                timeout=10,
-            )
-            if price_resp.ok:
-                pol_price_usd = price_resp.json().get("matic-network", {}).get("usd", 0.0)
+            for coin_id in ("polygon-ecosystem-token", "matic-network"):
+                price_resp = req.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    params={"ids": coin_id, "vs_currencies": "usd"},
+                    timeout=10,
+                )
+                if price_resp.ok:
+                    price = price_resp.json().get(coin_id, {}).get("usd", 0.0)
+                    if price and price > 0:
+                        pol_price_usd = price
+                        break
         except Exception as e:
-            logger.warning(f"Failed to fetch POL price: {e}")
+            logger.warning(f"CoinGecko POL price failed: {e}")
+
+        if pol_price_usd == 0:
+            try:
+                for symbol in ("POLUSDT", "MATICUSDT"):
+                    br = req.get(
+                        "https://api.binance.com/api/v3/ticker/price",
+                        params={"symbol": symbol}, timeout=10,
+                    )
+                    if br.ok:
+                        p = float(br.json().get("price", 0))
+                        if p > 0:
+                            pol_price_usd = p
+                            break
+            except Exception:
+                pass
 
         pol_usd_value = pol_balance * pol_price_usd
         usdc_e_usd_value = usdc_e_balance  # USDCe is pegged ~$1
@@ -1168,6 +1187,121 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         }
 
         _balance_cache[wallet] = (now, data)
+        return jsonify(data)
+
+    # =========================================================================
+    # Polymarket Portfolio (live data from Polymarket APIs)
+    # =========================================================================
+
+    _portfolio_cache: dict[str, tuple[float, dict]] = {}
+    _PORTFOLIO_CACHE_TTL = 30  # 30 seconds
+
+    @app.route("/api/portfolio")
+    @auth
+    def get_portfolio():
+        """Get the user's live Polymarket portfolio: positions, trade history, and balance.
+
+        Fetches directly from Polymarket Data API to show actual on-chain state.
+        """
+        import time as _time
+        import requests as req
+
+        wallet = request.user_address
+        now = _time.time()
+
+        if wallet in _portfolio_cache:
+            cached_time, cached_data = _portfolio_cache[wallet]
+            if now - cached_time < _PORTFOLIO_CACHE_TTL:
+                return jsonify(cached_data)
+
+        positions = []
+        trades = []
+        total_invested = 0.0
+        total_current_value = 0.0
+        total_pnl = 0.0
+
+        # Fetch live positions from Polymarket Data API
+        try:
+            pos_resp = req.get(
+                f"{settings.data_host}/positions",
+                params={"user": wallet.lower()},
+                timeout=15,
+                headers={"Accept": "application/json"},
+            )
+            if pos_resp.ok:
+                raw_positions = pos_resp.json()
+                if isinstance(raw_positions, list):
+                    for p in raw_positions:
+                        size = float(p.get("size", 0) or 0)
+                        if size <= 0:
+                            continue
+                        avg_price = float(p.get("avgPrice", 0) or p.get("avg_price", 0) or 0)
+                        cur_price = float(p.get("curPrice", 0) or p.get("currentPrice", 0) or 0)
+                        cost = size * avg_price
+                        value = size * cur_price
+                        pnl = value - cost
+
+                        total_invested += cost
+                        total_current_value += value
+                        total_pnl += pnl
+
+                        positions.append({
+                            "asset": p.get("asset", ""),
+                            "title": p.get("title", p.get("market", "")),
+                            "outcome": p.get("outcome", ""),
+                            "size": round(size, 2),
+                            "avgPrice": round(avg_price, 4),
+                            "curPrice": round(cur_price, 4),
+                            "cost": round(cost, 2),
+                            "value": round(value, 2),
+                            "pnl": round(pnl, 2),
+                            "pnlPct": round((pnl / cost * 100) if cost > 0 else 0, 1),
+                            "side": p.get("side", "LONG"),
+                        })
+        except Exception as e:
+            logger.warning(f"Failed to fetch Polymarket positions: {e}")
+
+        # Fetch recent trades from Polymarket Data API
+        try:
+            trades_resp = req.get(
+                f"{settings.data_host}/trades",
+                params={"user": wallet.lower(), "limit": 100},
+                timeout=15,
+                headers={"Accept": "application/json"},
+            )
+            if trades_resp.ok:
+                raw_trades = trades_resp.json()
+                if isinstance(raw_trades, list):
+                    for t in raw_trades:
+                        size = float(t.get("size", 0) or 0)
+                        price = float(t.get("price", 0) or 0)
+                        trades.append({
+                            "id": t.get("id", ""),
+                            "timestamp": t.get("timestamp", t.get("created_at", "")),
+                            "market": t.get("title", t.get("market", "")),
+                            "outcome": t.get("outcome", ""),
+                            "side": t.get("side", ""),
+                            "size": round(size, 2),
+                            "price": round(price, 4),
+                            "amount": round(size * price, 2),
+                            "asset": t.get("asset", ""),
+                        })
+        except Exception as e:
+            logger.warning(f"Failed to fetch Polymarket trades: {e}")
+
+        data = {
+            "positions": positions,
+            "trades": trades,
+            "summary": {
+                "total_positions": len(positions),
+                "total_invested": round(total_invested, 2),
+                "total_current_value": round(total_current_value, 2),
+                "total_pnl": round(total_pnl, 2),
+                "total_pnl_pct": round((total_pnl / total_invested * 100) if total_invested > 0 else 0, 1),
+            },
+        }
+
+        _portfolio_cache[wallet] = (now, data)
         return jsonify(data)
 
     # =========================================================================

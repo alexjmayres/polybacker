@@ -206,8 +206,8 @@ export function WatchlistPanel() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--cyan)]" />
-                      <span className="mono text-sm text-[var(--cyan)]">
-                        {truncate(entry.trader_address)}
+                      <span className="mono text-[10px] sm:text-sm text-[var(--cyan)] break-all">
+                        {entry.trader_address}
                       </span>
                       {entry.alias && (
                         <span className="text-[10px] text-[var(--green-dim)]">

@@ -193,6 +193,7 @@ def _migrate_db(conn):
         ("min_copy_size", "REAL"),
         ("max_copy_size", "REAL"),
         ("max_daily_spend", "REAL"),
+        ("limit_order_pct", "REAL"),
     ]:
         if col not in columns:
             conn.execute(
@@ -521,7 +522,7 @@ def get_all_traders(db_path: str, user_address: Optional[str] = None) -> list[di
 
 def update_trader_settings(db_path: str, address: str, user_address: str, **settings) -> bool:
     address = address.lower().strip()
-    valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "active"}
+    valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "active"}
     updates = []
     params = []
     for key, val in settings.items():

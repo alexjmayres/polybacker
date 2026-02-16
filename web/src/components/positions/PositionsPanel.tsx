@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiJson } from "@/lib/api";
+import { apiJson, apiFetch } from "@/lib/api";
 import { usePreferences } from "@/hooks/usePreferences";
 
 interface Position {
@@ -35,6 +35,42 @@ interface ActionResult {
   failed?: number;
   skipped?: number;
   errors?: string[];
+}
+
+interface PortfolioTrade {
+  id: string;
+  timestamp: string;
+  market: string;
+  outcome: string;
+  side: string;
+  size: number;
+  price: number;
+  amount: number;
+}
+
+interface PortfolioPosition {
+  title: string;
+  outcome: string;
+  size: number;
+  avgPrice: number;
+  curPrice: number;
+  cost: number;
+  value: number;
+  pnl: number;
+  pnlPct: number;
+  side: string;
+}
+
+interface PortfolioData {
+  positions: PortfolioPosition[];
+  trades: PortfolioTrade[];
+  summary: {
+    total_positions: number;
+    total_invested: number;
+    total_current_value: number;
+    total_pnl: number;
+    total_pnl_pct: number;
+  };
 }
 
 const REFRESH_OPTIONS = [
@@ -79,6 +115,13 @@ export function PositionsPanel() {
     queryKey: ["positions-summary"],
     queryFn: () => apiJson("/api/positions/summary"),
     refetchInterval: 15000,
+  });
+
+  const { data: portfolio } = useQuery<PortfolioData>({
+    queryKey: ["portfolio"],
+    queryFn: () => apiJson("/api/portfolio"),
+    refetchInterval: 30000,
+    retry: false,
   });
 
   // Auto-redeem query — only active when toggle is on
@@ -473,6 +516,176 @@ export function PositionsPanel() {
                         }`}
                       >
                         {formatPnl(pos.unrealized_pnl)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Polymarket Live Positions */}
+      {portfolio && portfolio.positions.length > 0 && (
+        <div className="glass rounded-none p-4 sm:p-5">
+          <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-4">
+            // POLYMARKET LIVE POSITIONS ({portfolio.positions.length})
+          </h3>
+
+          <div className="hidden lg:grid grid-cols-12 gap-2 text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2 px-3">
+            <div className="col-span-4">MARKET</div>
+            <div className="col-span-1">SHARES</div>
+            <div className="col-span-1">ENTRY</div>
+            <div className="col-span-1">CURRENT</div>
+            <div className="col-span-1">COST</div>
+            <div className="col-span-1">VALUE</div>
+            <div className="col-span-2">P&L</div>
+          </div>
+
+          <div className="space-y-1 max-h-[300px] overflow-y-auto">
+            {portfolio.positions.map((pos, i) => (
+              <div
+                key={i}
+                className={`border px-3 py-2 ${
+                  pos.pnl >= 0
+                    ? "bg-[rgba(0,255,65,0.02)] border-[rgba(0,255,65,0.08)]"
+                    : "bg-[rgba(255,51,51,0.02)] border-[rgba(255,51,51,0.08)]"
+                }`}
+              >
+                <div className="hidden lg:grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-4 mono text-sm text-[var(--green)] truncate">
+                    {pos.title || "Unknown"}
+                    {pos.outcome && (
+                      <span className="text-[var(--cyan)] text-[10px] ml-1">({pos.outcome})</span>
+                    )}
+                  </div>
+                  <div className="col-span-1 mono text-sm text-[var(--green-dim)]">
+                    {pos.size >= 1000 ? `${(pos.size / 1000).toFixed(1)}k` : pos.size.toFixed(1)}
+                  </div>
+                  <div className="col-span-1 mono text-sm text-[var(--green-dim)]">${pos.avgPrice.toFixed(2)}</div>
+                  <div className="col-span-1 mono text-sm text-[var(--green-dim)]">${pos.curPrice.toFixed(2)}</div>
+                  <div className="col-span-1 mono text-sm text-[var(--cyan)]">${pos.cost.toFixed(2)}</div>
+                  <div className="col-span-1 mono text-sm text-[var(--cyan)]">${pos.value.toFixed(2)}</div>
+                  <div className="col-span-2">
+                    <span className={`mono text-sm font-bold ${pos.pnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                      {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
+                    </span>
+                    <span className={`mono text-[10px] ml-1 ${pos.pnl >= 0 ? "text-[var(--green-dim)]" : "text-[var(--red)]"}`}>
+                      ({pos.pnlPct >= 0 ? "+" : ""}{pos.pnlPct.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+                <div className="lg:hidden space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="mono text-sm text-[var(--green)] truncate flex-1 mr-2">
+                      {pos.title || "Unknown"}
+                    </span>
+                    <span className={`mono text-sm font-bold ${pos.pnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                      {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] mono text-[var(--green-dark)]">
+                    <span>{pos.size.toFixed(1)} shares</span>
+                    <span>${pos.avgPrice.toFixed(2)} &rarr; ${pos.curPrice.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Trade History */}
+      <div className="glass rounded-none p-4 sm:p-5">
+        <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-4">
+          // TRADE HISTORY (POLYMARKET)
+        </h3>
+
+        {!portfolio || portfolio.trades.length === 0 ? (
+          <div className="text-center py-8">
+            <span className="mono text-sm text-[var(--green-dark)]">
+              no trade history found on Polymarket
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="hidden lg:grid grid-cols-12 gap-2 text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2 px-3">
+              <div className="col-span-3">MARKET</div>
+              <div className="col-span-2">OUTCOME</div>
+              <div className="col-span-1">SIDE</div>
+              <div className="col-span-1">SHARES</div>
+              <div className="col-span-1">PRICE</div>
+              <div className="col-span-2">AMOUNT</div>
+              <div className="col-span-2">TIME</div>
+            </div>
+
+            <div className="space-y-1 max-h-[400px] overflow-y-auto">
+              {portfolio.trades.map((trade, i) => (
+                <div
+                  key={trade.id || i}
+                  className={`border px-3 py-2 ${
+                    trade.side === "BUY"
+                      ? "bg-[rgba(0,255,65,0.02)] border-[rgba(0,255,65,0.08)]"
+                      : "bg-[rgba(255,51,51,0.02)] border-[rgba(255,51,51,0.08)]"
+                  }`}
+                >
+                  {/* Desktop */}
+                  <div className="hidden lg:grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-3 mono text-sm text-[var(--green)] truncate">
+                      {trade.market || "Unknown"}
+                    </div>
+                    <div className="col-span-2 mono text-[10px] text-[var(--cyan)] truncate">
+                      {trade.outcome || "-"}
+                    </div>
+                    <div className="col-span-1">
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 ${
+                          trade.side === "BUY"
+                            ? "text-[var(--green)] border border-[var(--green)]"
+                            : "text-[var(--red)] border border-[var(--red)]"
+                        }`}
+                      >
+                        {trade.side}
+                      </span>
+                    </div>
+                    <div className="col-span-1 mono text-sm text-[var(--green-dim)]">
+                      {trade.size >= 1000 ? `${(trade.size / 1000).toFixed(1)}k` : trade.size.toFixed(1)}
+                    </div>
+                    <div className="col-span-1 mono text-sm text-[var(--green-dim)]">
+                      ${trade.price.toFixed(2)}
+                    </div>
+                    <div className="col-span-2 mono text-sm text-[var(--cyan)] font-bold">
+                      ${trade.amount.toFixed(2)}
+                    </div>
+                    <div className="col-span-2 mono text-[10px] text-[var(--green-dark)]">
+                      {trade.timestamp ? timeAgo(trade.timestamp) : "-"}
+                    </div>
+                  </div>
+
+                  {/* Mobile */}
+                  <div className="lg:hidden space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="mono text-sm text-[var(--green)] truncate flex-1 mr-2">
+                        {trade.market || "Unknown"}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 ${
+                          trade.side === "BUY"
+                            ? "text-[var(--green)] border border-[var(--green)]"
+                            : "text-[var(--red)] border border-[var(--red)]"
+                        }`}
+                      >
+                        {trade.side}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-[10px] mono text-[var(--green-dark)]">
+                        <span>{trade.size.toFixed(1)} @ ${trade.price.toFixed(2)}</span>
+                        {trade.outcome && <span className="text-[var(--cyan)]">{trade.outcome}</span>}
+                      </div>
+                      <span className="mono text-sm text-[var(--cyan)] font-bold">
+                        ${trade.amount.toFixed(2)}
                       </span>
                     </div>
                   </div>

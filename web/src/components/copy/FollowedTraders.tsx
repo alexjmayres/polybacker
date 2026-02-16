@@ -16,6 +16,7 @@ interface Trader {
   min_copy_size: number | null;
   max_copy_size: number | null;
   max_daily_spend: number | null;
+  limit_order_pct: number | null;
 }
 
 interface TraderSettingsForm {
@@ -23,6 +24,7 @@ interface TraderSettingsForm {
   min_copy_size: string;
   max_copy_size: string;
   max_daily_spend: string;
+  limit_order_pct: string;
 }
 
 function TraderSettings({
@@ -38,6 +40,7 @@ function TraderSettings({
     min_copy_size: trader.min_copy_size != null ? String(trader.min_copy_size) : "",
     max_copy_size: trader.max_copy_size != null ? String(trader.max_copy_size) : "",
     max_daily_spend: trader.max_daily_spend != null ? String(trader.max_daily_spend) : "",
+    limit_order_pct: trader.limit_order_pct != null ? String(trader.limit_order_pct) : "",
   });
 
   const saveMutation = useMutation({
@@ -63,6 +66,11 @@ function TraderSettings({
         body.max_daily_spend = parseFloat(form.max_daily_spend);
       } else {
         body.max_daily_spend = null;
+      }
+      if (form.limit_order_pct !== "") {
+        body.limit_order_pct = parseFloat(form.limit_order_pct);
+      } else {
+        body.limit_order_pct = null;
       }
 
       const res = await apiFetch(`/api/copy/traders/${trader.address}`, {
@@ -208,6 +216,29 @@ function TraderSettings({
             [CLR]
           </button>
         </div>
+
+        {/* Limit Order +% */}
+        <div className="flex items-center gap-2">
+          <label className="mono text-[10px] text-[var(--green-dim)] w-20 shrink-0">
+            LIMIT +%
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            step="0.5"
+            placeholder="GLOBAL: 2%"
+            value={form.limit_order_pct}
+            onChange={(e) => setForm((p) => ({ ...p, limit_order_pct: e.target.value }))}
+            className="flex-1 bg-transparent border border-[var(--panel-border)] rounded-none px-2 py-1 text-[10px] mono text-[var(--green)] focus:outline-none focus:border-[var(--green)] min-w-0"
+          />
+          <button
+            onClick={() => clearField("limit_order_pct")}
+            className="text-[9px] text-[var(--green-dark)] hover:text-[var(--red)] transition-colors"
+          >
+            [CLR]
+          </button>
+        </div>
       </div>
 
       {/* Save/error */}
@@ -283,7 +314,8 @@ export function FollowedTraders() {
     t.copy_percentage != null ||
     t.min_copy_size != null ||
     t.max_copy_size != null ||
-    t.max_daily_spend != null;
+    t.max_daily_spend != null ||
+    t.limit_order_pct != null;
 
   return (
     <div className="glass rounded-none p-4 sm:p-5">
@@ -344,29 +376,29 @@ export function FollowedTraders() {
                   )
                 }
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-2 flex-nowrap overflow-hidden">
                     {/* Active indicator dot */}
                     <span
                       className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
                         trader.active ? "bg-[var(--green)]" : "bg-[var(--red)]"
                       }`}
                     />
-                    <span className="mono text-sm text-[var(--cyan)]">
+                    <span className="mono text-sm text-[var(--cyan)] shrink-0">
                       {truncate(trader.address)}
                     </span>
                     {trader.alias && (
-                      <span className="text-[10px] text-[var(--green-dim)]">
+                      <span className="text-[10px] text-[var(--green-dim)] truncate max-w-[120px]">
                         ({trader.alias})
                       </span>
                     )}
                     {hasOverride(trader) && (
-                      <span className="text-[8px] text-[var(--amber)] border border-[var(--amber)] px-1 rounded-none leading-tight">
+                      <span className="text-[8px] text-[var(--amber)] border border-[var(--amber)] px-1 rounded-none leading-tight shrink-0">
                         CUSTOM
                       </span>
                     )}
                   </div>
-                  <div className="text-[10px] text-[var(--green-dark)] mono ml-3.5">
+                  <div className="text-[10px] text-[var(--green-dark)] mono ml-3.5 truncate">
                     {trader.total_copied} trades // ${trader.total_spent.toFixed(2)} spent
                   </div>
                 </div>
