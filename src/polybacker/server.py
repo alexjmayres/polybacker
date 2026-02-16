@@ -572,6 +572,20 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         stats["max_slippage"] = settings.max_slippage
         return jsonify(stats)
 
+    def _get_pm_wallet(user_addr: str) -> str:
+        """Get the best Polymarket wallet address for live data queries.
+
+        Priority: user preference > env var > owner EOA.
+        """
+        prefs = db.get_user_preferences(db_path, user_addr)
+        pref_addr = prefs.get("polymarket_address", "")
+        if pref_addr and pref_addr.startswith("0x"):
+            return pref_addr
+        env_addr = settings.polymarket_address or ""
+        if env_addr and env_addr.startswith("0x"):
+            return env_addr
+        return user_addr
+
     @app.route("/api/copy/pnl")
     @auth
     def copy_pnl():
@@ -581,8 +595,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             days=days,
         )
         # If no local data, fall back to live Polymarket trades for the wallet
-        if not series and owner_address:
-            series = _fetch_live_pnl(owner_address, days, strategy_filter="copy")
+        if not series:
+            pm_wallet = _get_pm_wallet(request.user_address)
+            series = _fetch_live_pnl(pm_wallet, days, strategy_filter="copy")
         return jsonify(series)
 
     # =========================================================================
@@ -653,8 +668,9 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             days=days,
         )
         # If no local data, fall back to live Polymarket trades
-        if not series and owner_address:
-            series = _fetch_live_pnl(owner_address, days, strategy_filter="arb")
+        if not series:
+            pm_wallet = _get_pm_wallet(request.user_address)
+            series = _fetch_live_pnl(pm_wallet, days, strategy_filter="arb")
         return jsonify(series)
 
     # =========================================================================
@@ -1081,6 +1097,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     # Wallet Balance Endpoints
     # =========================================================================
 
+    # Shared constants for on-chain RPC calls
+    rpc_url = "https://polygon-rpc.com"
+    usdc_e_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+    usdc_e_decimals = 6
+
     _balance_cache: dict[str, tuple[float, dict]] = {}
     _BALANCE_CACHE_TTL = 30  # 30 seconds
 
@@ -1103,10 +1124,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                 return jsonify(cached_data)
 
         import requests as req
-
-        rpc_url = "https://polygon-rpc.com"
-        usdc_e_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-        usdc_e_decimals = 6
 
         # Fetch native POL (MATIC) balance
         pol_balance = 0.0
@@ -1317,7 +1334,8 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     def get_portfolio():
         """Get the user's live Polymarket portfolio: positions, trade history, and balance.
 
-        Resolves the Polymarket proxy wallet and queries both EOA and proxy addresses.
+        Queries the user's configured Polymarket trading address (from env var,
+        user preferences, or falls back to EOA + proxy resolution).
         """
         import time as _time
         import requests as req
@@ -1330,25 +1348,44 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             if now - cached_time < _PORTFOLIO_CACHE_TTL:
                 return jsonify(cached_data)
 
-        # Resolve proxy wallet address
-        proxy = _get_proxy_for(wallet)
-        addresses = [wallet]
-        if proxy:
-            addresses.append(proxy)
+        # Build list of addresses to query for Polymarket data
+        addresses = []
 
-        # Fetch data from both EOA and proxy
+        # 1. Check user preferences for a configured Polymarket address
+        prefs = db.get_user_preferences(db_path, wallet)
+        pref_pm_addr = prefs.get("polymarket_address", "")
+
+        # 2. Check settings / env var for a global Polymarket address
+        env_pm_addr = settings.polymarket_address or ""
+
+        # Use preference first, then env var, then fall back to EOA + proxy
+        if pref_pm_addr and pref_pm_addr.startswith("0x"):
+            addresses.append(pref_pm_addr)
+        elif env_pm_addr and env_pm_addr.startswith("0x"):
+            addresses.append(env_pm_addr)
+        else:
+            # Fall back to EOA + resolved proxy
+            addresses.append(wallet)
+            proxy = _get_proxy_for(wallet)
+            if proxy:
+                addresses.append(proxy)
+
+        # Fetch data from resolved addresses
         positions, trades = _fetch_polymarket_data(addresses, settings.data_host)
 
         total_invested = sum(p["cost"] for p in positions)
         total_current_value = sum(p["value"] for p in positions)
         total_pnl = sum(p["pnl"] for p in positions)
 
-        # Check USDCe deposited in proxy (Polymarket trading balance)
+        # Check USDCe balance on the primary Polymarket trading address
+        pm_address = addresses[0] if addresses else None
         proxy_usdc_balance = 0.0
-        if proxy:
+        if pm_address and pm_address.lower() != wallet.lower():
+            # Only check if the PM address is different from the EOA wallet
+            # (EOA USDCe is already shown in wallet balances)
             try:
-                padded_proxy = proxy.lower().replace("0x", "").zfill(64)
-                call_data = "0x70a08231" + padded_proxy
+                padded_pm = pm_address.lower().replace("0x", "").zfill(64)
+                call_data = "0x70a08231" + padded_pm
                 rpc_resp = req.post(rpc_url, json={
                     "jsonrpc": "2.0", "method": "eth_call",
                     "params": [{"to": usdc_e_contract, "data": call_data}, "latest"],
@@ -1358,12 +1395,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                     result = rpc_resp.json().get("result", "0x0")
                     proxy_usdc_balance = int(result, 16) / (10 ** usdc_e_decimals)
             except Exception as e:
-                logger.warning(f"Proxy USDC balance check failed: {e}")
+                logger.warning(f"PM trading balance check failed: {e}")
 
         data = {
             "positions": positions,
             "trades": trades,
-            "proxy_wallet": proxy or "",
+            "proxy_wallet": pm_address or "",
             "proxy_usdc_balance": round(proxy_usdc_balance, 2),
             "summary": {
                 "total_positions": len(positions),

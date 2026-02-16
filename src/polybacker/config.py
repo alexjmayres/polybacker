@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     auto_execute: bool = Field(default=True, description="Auto-execute trades vs dry-run")
     db_path: str = Field(default="polybacker.db", description="Path to SQLite database")
 
+    # --- Polymarket Trading Address ---
+    polymarket_address: str = Field(
+        default="",
+        alias="POLYMARKET_ADDRESS",
+        description="Your Polymarket trading/proxy wallet address (shown in Polymarket Builder Settings). "
+                    "This is often different from your MetaMask EOA.",
+    )
+
     # --- API URLs (rarely need changing) ---
     clob_host: str = Field(default="https://clob.polymarket.com")
     gamma_host: str = Field(default="https://gamma-api.polymarket.com")

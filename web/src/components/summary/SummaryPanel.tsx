@@ -4,31 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
 import { PnlChart } from "@/components/PnlChart";
 
-interface CopyStats {
-  total_trades: number;
-  total_spent: number;
-  failed_trades: number;
-  daily_spend: number;
-  daily_limit: number;
-}
-
-interface ArbStats {
-  total_trades: number;
-  total_spent: number;
-  total_expected_profit: number;
-  failed_trades: number;
-}
-
-interface Trade {
-  id: number;
-  timestamp: string;
-  strategy: string;
-  market: string;
-  side: string;
-  amount: number;
-  status: string;
-}
-
 interface WalletBalances {
   pol_balance: number;
   pol_price_usd: number;
@@ -68,24 +43,6 @@ interface PortfolioData {
 }
 
 export function SummaryPanel() {
-  const { data: copyStats } = useQuery<CopyStats>({
-    queryKey: ["copy-stats"],
-    queryFn: () => apiJson("/api/copy/stats"),
-    refetchInterval: 15000,
-  });
-
-  const { data: arbStats } = useQuery<ArbStats>({
-    queryKey: ["arb-stats"],
-    queryFn: () => apiJson("/api/arb/stats"),
-    refetchInterval: 15000,
-  });
-
-  const { data: recentTrades = [] } = useQuery<Trade[]>({
-    queryKey: ["recent-trades"],
-    queryFn: () => apiJson("/api/trades?limit=10"),
-    refetchInterval: 15000,
-  });
-
   const { data: balances } = useQuery<WalletBalances>({
     queryKey: ["wallet-balances"],
     queryFn: () => apiJson("/api/wallet/balances"),
@@ -99,11 +56,6 @@ export function SummaryPanel() {
     refetchInterval: 30000,
     retry: false,
   });
-
-  const totalTrades =
-    (copyStats?.total_trades ?? 0) + (arbStats?.total_trades ?? 0);
-  const totalSpent =
-    (copyStats?.total_spent ?? 0) + (arbStats?.total_spent ?? 0);
 
   const pmPositions = portfolio?.summary?.total_positions ?? 0;
   const pmInvested = portfolio?.summary?.total_invested ?? 0;
@@ -131,26 +83,12 @@ export function SummaryPanel() {
       value: String(pmPositions),
       color: "text-[var(--green)]",
     },
-    {
-      label: "BOT TRADES",
-      value: String(totalTrades),
-      color: "text-[var(--magenta)]",
-    },
   ];
-
-  const timeAgo = (ts: string) => {
-    const diff = Date.now() - new Date(ts + "Z").getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
-    return `${Math.floor(hrs / 24)}d`;
-  };
 
   return (
     <div className="space-y-6 slide-up">
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {statItems.map((item) => (
           <div key={item.label} className="glass rounded-none p-4 slide-up">
             <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
@@ -304,7 +242,7 @@ export function SummaryPanel() {
                   </div>
                   <div className="flex items-center gap-3 text-[10px] mono text-[var(--green-dark)]">
                     <span>{pos.size.toFixed(1)} shares</span>
-                    <span>${pos.avgPrice.toFixed(2)} → ${pos.curPrice.toFixed(2)}</span>
+                    <span>${pos.avgPrice.toFixed(2)} &rarr; ${pos.curPrice.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -312,59 +250,6 @@ export function SummaryPanel() {
           </div>
         </div>
       )}
-
-      {/* Recent Activity Feed */}
-      <div className="glass rounded-none p-4 sm:p-5">
-        <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-4">
-          // RECENT BOT ACTIVITY
-        </h3>
-        <div className="space-y-1 max-h-64 overflow-y-auto">
-          {recentTrades.length === 0 ? (
-            <p className="mono text-sm text-[var(--green-dark)] text-center py-4">
-              no bot trades recorded — start the copy or arb engine
-            </p>
-          ) : (
-            recentTrades.map((trade) => (
-              <div
-                key={trade.id}
-                className="flex items-center justify-between bg-[rgba(0,255,65,0.02)] border border-[rgba(0,255,65,0.08)] px-3 py-2"
-              >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 ${
-                      trade.strategy === "copy"
-                        ? "text-[var(--cyan)] border border-[var(--cyan)]"
-                        : "text-[var(--amber)] border border-[var(--amber)]"
-                    }`}
-                  >
-                    {trade.strategy === "copy" ? "COPY" : "ARB"}
-                  </span>
-                  <span className="mono text-sm text-[var(--green)] truncate">
-                    {trade.market || "Unknown Market"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <span
-                    className={`mono text-sm ${
-                      trade.side === "BUY"
-                        ? "text-[var(--green)]"
-                        : "text-[var(--red)]"
-                    }`}
-                  >
-                    {trade.side}
-                  </span>
-                  <span className="mono text-sm text-[var(--cyan)]">
-                    ${trade.amount.toFixed(2)}
-                  </span>
-                  <span className="mono text-[10px] text-[var(--green-dark)]">
-                    {timeAgo(trade.timestamp)}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
     </div>
   );
 }
