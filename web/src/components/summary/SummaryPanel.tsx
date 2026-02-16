@@ -35,6 +35,15 @@ interface PositionSummary {
   unrealized_pnl: number;
 }
 
+interface WalletBalances {
+  pol_balance: number;
+  pol_price_usd: number;
+  pol_usd_value: number;
+  usdc_e_balance: number;
+  usdc_e_usd_value: number;
+  total_usd: number;
+}
+
 export function SummaryPanel() {
   const { data: copyStats } = useQuery<CopyStats>({
     queryKey: ["copy-stats"],
@@ -58,6 +67,13 @@ export function SummaryPanel() {
     queryKey: ["positions-summary"],
     queryFn: () => apiJson("/api/positions/summary"),
     refetchInterval: 15000,
+    retry: false,
+  });
+
+  const { data: balances } = useQuery<WalletBalances>({
+    queryKey: ["wallet-balances"],
+    queryFn: () => apiJson("/api/wallet/balances"),
+    refetchInterval: 30000,
     retry: false,
   });
 
@@ -123,6 +139,52 @@ export function SummaryPanel() {
           </div>
         ))}
       </div>
+
+      {/* Wallet Balances */}
+      {balances && (
+        <div className="glass rounded-none p-4 sm:p-5 slide-up">
+          <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-3">
+            // WALLET BALANCES
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                USDCe
+              </div>
+              <div className="text-lg font-bold mono text-[var(--cyan)]">
+                ${balances.usdc_e_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                POL
+              </div>
+              <div className="text-lg font-bold mono text-[var(--amber)]">
+                {balances.pol_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+              </div>
+              <div className="text-[9px] mono text-[var(--green-dark)]">
+                @ ${balances.pol_price_usd.toFixed(4)} = ${balances.pol_usd_value.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                POL (USD)
+              </div>
+              <div className="text-lg font-bold mono text-[var(--amber)]">
+                ${balances.pol_usd_value.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                TOTAL (USD)
+              </div>
+              <div className="text-lg font-bold mono text-[var(--green)]">
+                ${balances.total_usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PnL Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

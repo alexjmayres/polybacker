@@ -900,6 +900,99 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return jsonify({"error": "Not running"}), 400
 
     # =========================================================================
+    # Wallet Balance Endpoints
+    # =========================================================================
+
+    _balance_cache: dict[str, tuple[float, dict]] = {}
+    _BALANCE_CACHE_TTL = 30  # 30 seconds
+
+    @app.route("/api/wallet/balances")
+    @auth
+    def wallet_balances():
+        """Get USDCe and POL balances for the authenticated user's wallet.
+
+        Returns balances in native units and USD-normalized totals.
+        """
+        import time as _time
+
+        wallet = request.user_address
+        now = _time.time()
+
+        # Check cache
+        if wallet in _balance_cache:
+            cached_time, cached_data = _balance_cache[wallet]
+            if now - cached_time < _BALANCE_CACHE_TTL:
+                return jsonify(cached_data)
+
+        import requests as req
+
+        rpc_url = "https://polygon-rpc.com"
+        usdc_e_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+        usdc_e_decimals = 6
+
+        # Fetch native POL (MATIC) balance
+        pol_balance = 0.0
+        try:
+            rpc_resp = req.post(rpc_url, json={
+                "jsonrpc": "2.0",
+                "method": "eth_getBalance",
+                "params": [wallet, "latest"],
+                "id": 1,
+            }, timeout=10)
+            if rpc_resp.ok:
+                result = rpc_resp.json().get("result", "0x0")
+                pol_balance = int(result, 16) / 1e18
+        except Exception as e:
+            logger.warning(f"Failed to fetch POL balance: {e}")
+
+        # Fetch USDCe balance (ERC-20 balanceOf)
+        usdc_e_balance = 0.0
+        try:
+            # balanceOf(address) selector = 0x70a08231
+            padded_addr = wallet.lower().replace("0x", "").zfill(64)
+            call_data = "0x70a08231" + padded_addr
+            rpc_resp = req.post(rpc_url, json={
+                "jsonrpc": "2.0",
+                "method": "eth_call",
+                "params": [{"to": usdc_e_contract, "data": call_data}, "latest"],
+                "id": 2,
+            }, timeout=10)
+            if rpc_resp.ok:
+                result = rpc_resp.json().get("result", "0x0")
+                usdc_e_balance = int(result, 16) / (10 ** usdc_e_decimals)
+        except Exception as e:
+            logger.warning(f"Failed to fetch USDCe balance: {e}")
+
+        # Fetch POL price in USD from CoinGecko
+        pol_price_usd = 0.0
+        try:
+            price_resp = req.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "matic-network", "vs_currencies": "usd"},
+                timeout=10,
+            )
+            if price_resp.ok:
+                pol_price_usd = price_resp.json().get("matic-network", {}).get("usd", 0.0)
+        except Exception as e:
+            logger.warning(f"Failed to fetch POL price: {e}")
+
+        pol_usd_value = pol_balance * pol_price_usd
+        usdc_e_usd_value = usdc_e_balance  # USDCe is pegged ~$1
+        total_usd = pol_usd_value + usdc_e_usd_value
+
+        data = {
+            "pol_balance": round(pol_balance, 6),
+            "pol_price_usd": round(pol_price_usd, 4),
+            "pol_usd_value": round(pol_usd_value, 2),
+            "usdc_e_balance": round(usdc_e_balance, 6),
+            "usdc_e_usd_value": round(usdc_e_usd_value, 2),
+            "total_usd": round(total_usd, 2),
+        }
+
+        _balance_cache[wallet] = (now, data)
+        return jsonify(data)
+
+    # =========================================================================
     # General Endpoints
     # =========================================================================
 
