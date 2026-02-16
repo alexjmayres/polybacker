@@ -85,6 +85,13 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         else:
             logger.info(f"PB500 Master Fund exists (id={pb500['id']})")
 
+    # Polymarket client is lazily initialized on first use.
+    # The py-clob-client uses httpx with HTTP/2 which can fail if initialized
+    # at module level or inside socketio.run() context. We use a lock to
+    # ensure thread-safe lazy init.
+    _pm_client_lock = threading.Lock()
+    app.config["pm_client"] = None
+    app.config["pm_client_lock"] = _pm_client_lock
     app.config["settings"] = settings
     app.config["owner_address"] = owner_address
     app.config["copy_trader"] = None
@@ -96,6 +103,39 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     app.config["fund_thread"] = None
     app.config["position_thread"] = None
     app.config["whitelist_enabled"] = True  # Whitelist enforcement on by default
+
+    def _get_pm_client():
+        """Lazily initialise and return the shared PolymarketClient.
+
+        Thread-safe: uses a lock to prevent duplicate init.
+        If py-clob-client's httpx HTTP/2 singleton has issues, we patch it
+        to use HTTP/1.1 and retry.
+        """
+        client = app.config.get("pm_client")
+        if client is not None:
+            return client
+
+        with app.config["pm_client_lock"]:
+            # Double-check after acquiring lock
+            client = app.config.get("pm_client")
+            if client is not None:
+                return client
+
+            from polybacker.client import PolymarketClient
+            try:
+                client = PolymarketClient(settings)
+            except Exception:
+                # HTTP/2 can fail in threaded server contexts.
+                # Patch the py-clob-client's httpx client to HTTP/1.1 and retry.
+                logger.warning("HTTP/2 init failed, falling back to HTTP/1.1")
+                import httpx
+                from py_clob_client.http_helpers import helpers as _helpers
+                _helpers._http_client = httpx.Client(http2=False)
+                client = PolymarketClient(settings)
+
+            app.config["pm_client"] = client
+            logger.info("Polymarket CLOB client initialized (lazy)")
+            return client
 
     # Create auth decorator bound to this app's JWT secret
     auth = require_auth(settings.jwt_secret)
@@ -309,9 +349,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if not payload:
             return jsonify({"error": "Invalid token"}), 401
 
+        # Accept both "sub" (standard JWT) and "address" (legacy tokens)
+        addr = payload.get("sub") or payload.get("address", "")
         return jsonify({
             "authenticated": True,
-            "address": payload["sub"],
+            "address": addr,
             "role": payload.get("role", "user"),
         })
 
@@ -422,13 +464,13 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if app.config["copy_thread"] and app.config["copy_thread"].is_alive():
             return jsonify({"error": "Copy trading already running"}), 400
 
-        from polybacker.client import PolymarketClient
         from polybacker.copy_trader import CopyTrader
 
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = PolymarketClient(settings)
+            client = _get_pm_client()
+
             trader = CopyTrader(
                 settings=settings, client=client, dry_run=dry_run,
                 user_address=request.user_address,
@@ -445,6 +487,8 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
             return jsonify({"message": "Copy trading started", "dry_run": dry_run})
         except Exception as e:
+            import traceback
+            logger.error(f"Copy start failed: {e}\n{traceback.format_exc()}")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/api/copy/stop", methods=["POST"])
@@ -525,10 +569,8 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         Returns their current open positions and trade history for PnL charting.
         """
-        from polybacker.client import PolymarketClient
-
         try:
-            client = PolymarketClient(settings)
+            client = _get_pm_client()
         except Exception:
             # If CLOB client can't init (no private key), use a basic requests client
             import requests as req
@@ -618,13 +660,13 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if app.config["arb_thread"] and app.config["arb_thread"].is_alive():
             return jsonify({"error": "Arbitrage already running"}), 400
 
-        from polybacker.client import PolymarketClient
         from polybacker.arbitrage import ArbitrageScanner
 
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = PolymarketClient(settings)
+            client = _get_pm_client()
+
             scanner = ArbitrageScanner(
                 settings=settings, client=client, dry_run=dry_run,
                 user_address=request.user_address,
@@ -722,7 +764,6 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         Places FOK market sell orders for every open LONG position and
         market buy orders for every open SHORT position to flatten the book.
         """
-        from polybacker.client import PolymarketClient
         from py_clob_client.order_builder.constants import BUY, SELL
 
         positions = db.get_open_positions(db_path, user_address=request.user_address)
@@ -730,7 +771,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             return jsonify({"error": "No open positions to close"}), 400
 
         try:
-            client = PolymarketClient(settings)
+            client = _get_pm_client()
         except Exception as e:
             return jsonify({"error": f"Failed to init trading client: {e}"}), 500
 
@@ -993,13 +1034,13 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if app.config["fund_thread"] and app.config["fund_thread"].is_alive():
             return jsonify({"error": "Fund manager already running"}), 400
 
-        from polybacker.client import PolymarketClient
         from polybacker.fund_manager import FundManager
 
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = PolymarketClient(settings)
+            client = _get_pm_client()
+
             fm = FundManager(settings=settings, client=client, dry_run=dry_run)
             app.config["fund_manager"] = fm
 

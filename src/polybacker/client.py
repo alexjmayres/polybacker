@@ -12,7 +12,7 @@ from typing import Optional
 
 import requests
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
+from py_clob_client.clob_types import ApiCreds, MarketOrderArgs, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from polybacker.config import Settings
@@ -56,8 +56,19 @@ class PolymarketClient:
             client_params["funder"] = settings.funder
 
         self.clob = ClobClient(**client_params)
-        self.clob.set_api_creds(self.clob.create_or_derive_api_creds())
-        logger.info("CLOB client initialized")
+
+        # Use explicit Builder API creds if provided, otherwise derive from key
+        if settings.api_key and settings.api_secret and settings.api_passphrase:
+            creds = ApiCreds(
+                api_key=settings.api_key,
+                api_secret=settings.api_secret,
+                api_passphrase=settings.api_passphrase,
+            )
+            self.clob.set_api_creds(creds)
+            logger.info("CLOB client initialized with Builder API credentials")
+        else:
+            self.clob.set_api_creds(self.clob.create_or_derive_api_creds())
+            logger.info("CLOB client initialized with derived API credentials")
 
     # -------------------------------------------------------------------------
     # Data API — public endpoints for querying trades/positions by address

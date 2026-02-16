@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     signature_type: int = Field(default=0, alias="POLYMARKET_SIGNATURE_TYPE")
     funder: Optional[str] = Field(default=None, alias="POLYMARKET_FUNDER")
 
+    # --- Builder API Credentials (from https://polymarket.com/settings/builder) ---
+    api_key: str = Field(default="", alias="POLYMARKET_API_KEY",
+                         description="Builder API key from Polymarket Builder Settings")
+    api_secret: str = Field(default="", alias="POLYMARKET_API_SECRET",
+                            description="Builder API secret (shown once at creation)")
+    api_passphrase: str = Field(default="", alias="POLYMARKET_API_PASSPHRASE",
+                                description="Builder API passphrase (shown once at creation)")
+
     # --- Auth (Web3 Wallet Connect) ---
     jwt_secret: str = Field(default="change-me-in-production", alias="JWT_SECRET")
     jwt_expiry_hours: int = Field(default=72, alias="JWT_EXPIRY_HOURS")

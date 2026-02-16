@@ -92,7 +92,8 @@ def require_auth(secret: str):
                 return jsonify({"error": "Invalid or expired token"}), 401
 
             # Attach user info to the request
-            request.user_address = payload["sub"]
+            # Accept both "sub" (standard JWT) and "address" (legacy tokens)
+            request.user_address = payload.get("sub") or payload.get("address", "")
             request.user_role = payload.get("role", "user")
             return f(*args, **kwargs)
         return decorated
