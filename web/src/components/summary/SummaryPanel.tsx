@@ -63,6 +63,8 @@ interface PortfolioData {
   positions: PortfolioPosition[];
   trades: unknown[];
   summary: PortfolioSummary;
+  proxy_wallet: string;
+  proxy_usdc_balance: number;
 }
 
 export function SummaryPanel() {
@@ -191,13 +193,15 @@ export function SummaryPanel() {
           </div>
           <div>
             <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-              POLYMARKET
+              PM TRADING BAL
             </div>
             <div className="text-lg font-bold mono text-[var(--magenta)]">
-              ${pmValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${(portfolio?.proxy_usdc_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div className="text-[9px] mono text-[var(--green-dark)]">
-              {pmPositions} open positions
+              {pmPositions > 0 ? `${pmPositions} positions ($${pmValue.toFixed(2)})` : (
+                portfolio?.proxy_usdc_balance === 0 ? "deposit USDCe to trade" : `${pmPositions} positions`
+              )}
             </div>
           </div>
           <div className="flex items-center justify-center sm:justify-end">
@@ -206,10 +210,10 @@ export function SummaryPanel() {
                 TOTAL
               </div>
               <div className="text-2xl sm:text-3xl font-bold mono text-[var(--red)]">
-                ${((balances?.total_usd ?? 0) + pmValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${((balances?.total_usd ?? 0) + (portfolio?.proxy_usdc_balance ?? 0) + pmValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="text-[9px] mono text-[var(--green-dark)]">
-                USD (wallet + positions)
+                USD (wallet + PM balance + positions)
               </div>
             </div>
           </div>

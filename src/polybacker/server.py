@@ -1196,12 +1196,128 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     _portfolio_cache: dict[str, tuple[float, dict]] = {}
     _PORTFOLIO_CACHE_TTL = 30  # 30 seconds
 
+    def _resolve_proxy_wallet(eoa_address: str) -> str | None:
+        """Resolve the Polymarket proxy wallet address for an EOA via on-chain call."""
+        import requests as req
+        try:
+            # getPolyProxyWalletAddress(address) selector = 0xedef7d8e
+            padded = eoa_address.lower().replace("0x", "").zfill(64)
+            call_data = "0xedef7d8e" + padded
+            factory = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+            rpc_resp = req.post(rpc_url, json={
+                "jsonrpc": "2.0", "method": "eth_call",
+                "params": [{"to": factory, "data": call_data}, "latest"],
+                "id": 1,
+            }, timeout=10)
+            if rpc_resp.ok:
+                result = rpc_resp.json().get("result", "0x")
+                if result and len(result) >= 66:
+                    proxy = "0x" + result[-40:]
+                    if proxy != "0x" + "0" * 40:
+                        return proxy
+        except Exception as e:
+            logger.warning(f"Failed to resolve proxy wallet: {e}")
+        return None
+
+    _proxy_cache: dict[str, str] = {}
+
+    def _get_proxy_for(eoa: str) -> str | None:
+        eoa = eoa.lower()
+        if eoa in _proxy_cache:
+            return _proxy_cache[eoa]
+        proxy = _resolve_proxy_wallet(eoa)
+        if proxy:
+            _proxy_cache[eoa] = proxy
+        return proxy
+
+    def _fetch_polymarket_data(address_list: list[str], data_host: str):
+        """Fetch positions and trades from Polymarket Data API, trying multiple addresses."""
+        import requests as req
+        positions = []
+        trades = []
+        seen_ids = set()
+
+        for addr in address_list:
+            if not addr:
+                continue
+            # Positions
+            try:
+                pos_resp = req.get(
+                    f"{data_host}/positions",
+                    params={"user": addr.lower()},
+                    timeout=15, headers={"Accept": "application/json"},
+                )
+                if pos_resp.ok:
+                    raw = pos_resp.json()
+                    if isinstance(raw, list):
+                        for p in raw:
+                            pid = p.get("asset", "") + p.get("outcome", "")
+                            if pid in seen_ids:
+                                continue
+                            seen_ids.add(pid)
+                            size = float(p.get("size", 0) or 0)
+                            if size <= 0:
+                                continue
+                            avg_price = float(p.get("avgPrice", 0) or p.get("avg_price", 0) or 0)
+                            cur_price = float(p.get("curPrice", 0) or p.get("currentPrice", 0) or 0)
+                            cost = size * avg_price
+                            value = size * cur_price
+                            pnl = value - cost
+                            positions.append({
+                                "asset": p.get("asset", ""),
+                                "title": p.get("title", p.get("market", p.get("question", ""))),
+                                "outcome": p.get("outcome", ""),
+                                "size": round(size, 2),
+                                "avgPrice": round(avg_price, 4),
+                                "curPrice": round(cur_price, 4),
+                                "cost": round(cost, 2),
+                                "value": round(value, 2),
+                                "pnl": round(pnl, 2),
+                                "pnlPct": round((pnl / cost * 100) if cost > 0 else 0, 1),
+                                "side": p.get("side", "LONG"),
+                            })
+            except Exception as e:
+                logger.warning(f"Polymarket positions for {addr}: {e}")
+
+            # Trades
+            try:
+                trades_resp = req.get(
+                    f"{data_host}/trades",
+                    params={"user": addr.lower(), "limit": 100},
+                    timeout=15, headers={"Accept": "application/json"},
+                )
+                if trades_resp.ok:
+                    raw = trades_resp.json()
+                    if isinstance(raw, list):
+                        for t in raw:
+                            tid = t.get("id", "")
+                            if tid in seen_ids:
+                                continue
+                            seen_ids.add(tid)
+                            size = float(t.get("size", 0) or 0)
+                            price = float(t.get("price", 0) or 0)
+                            trades.append({
+                                "id": tid,
+                                "timestamp": t.get("timestamp", t.get("created_at", "")),
+                                "market": t.get("title", t.get("market", t.get("question", ""))),
+                                "outcome": t.get("outcome", ""),
+                                "side": t.get("side", ""),
+                                "size": round(size, 2),
+                                "price": round(price, 4),
+                                "amount": round(size * price, 2),
+                                "asset": t.get("asset", ""),
+                            })
+            except Exception as e:
+                logger.warning(f"Polymarket trades for {addr}: {e}")
+
+        return positions, trades
+
     @app.route("/api/portfolio")
     @auth
     def get_portfolio():
         """Get the user's live Polymarket portfolio: positions, trade history, and balance.
 
-        Fetches directly from Polymarket Data API to show actual on-chain state.
+        Resolves the Polymarket proxy wallet and queries both EOA and proxy addresses.
         """
         import time as _time
         import requests as req
@@ -1214,84 +1330,41 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             if now - cached_time < _PORTFOLIO_CACHE_TTL:
                 return jsonify(cached_data)
 
-        positions = []
-        trades = []
-        total_invested = 0.0
-        total_current_value = 0.0
-        total_pnl = 0.0
+        # Resolve proxy wallet address
+        proxy = _get_proxy_for(wallet)
+        addresses = [wallet]
+        if proxy:
+            addresses.append(proxy)
 
-        # Fetch live positions from Polymarket Data API
-        try:
-            pos_resp = req.get(
-                f"{settings.data_host}/positions",
-                params={"user": wallet.lower()},
-                timeout=15,
-                headers={"Accept": "application/json"},
-            )
-            if pos_resp.ok:
-                raw_positions = pos_resp.json()
-                if isinstance(raw_positions, list):
-                    for p in raw_positions:
-                        size = float(p.get("size", 0) or 0)
-                        if size <= 0:
-                            continue
-                        avg_price = float(p.get("avgPrice", 0) or p.get("avg_price", 0) or 0)
-                        cur_price = float(p.get("curPrice", 0) or p.get("currentPrice", 0) or 0)
-                        cost = size * avg_price
-                        value = size * cur_price
-                        pnl = value - cost
+        # Fetch data from both EOA and proxy
+        positions, trades = _fetch_polymarket_data(addresses, settings.data_host)
 
-                        total_invested += cost
-                        total_current_value += value
-                        total_pnl += pnl
+        total_invested = sum(p["cost"] for p in positions)
+        total_current_value = sum(p["value"] for p in positions)
+        total_pnl = sum(p["pnl"] for p in positions)
 
-                        positions.append({
-                            "asset": p.get("asset", ""),
-                            "title": p.get("title", p.get("market", "")),
-                            "outcome": p.get("outcome", ""),
-                            "size": round(size, 2),
-                            "avgPrice": round(avg_price, 4),
-                            "curPrice": round(cur_price, 4),
-                            "cost": round(cost, 2),
-                            "value": round(value, 2),
-                            "pnl": round(pnl, 2),
-                            "pnlPct": round((pnl / cost * 100) if cost > 0 else 0, 1),
-                            "side": p.get("side", "LONG"),
-                        })
-        except Exception as e:
-            logger.warning(f"Failed to fetch Polymarket positions: {e}")
-
-        # Fetch recent trades from Polymarket Data API
-        try:
-            trades_resp = req.get(
-                f"{settings.data_host}/trades",
-                params={"user": wallet.lower(), "limit": 100},
-                timeout=15,
-                headers={"Accept": "application/json"},
-            )
-            if trades_resp.ok:
-                raw_trades = trades_resp.json()
-                if isinstance(raw_trades, list):
-                    for t in raw_trades:
-                        size = float(t.get("size", 0) or 0)
-                        price = float(t.get("price", 0) or 0)
-                        trades.append({
-                            "id": t.get("id", ""),
-                            "timestamp": t.get("timestamp", t.get("created_at", "")),
-                            "market": t.get("title", t.get("market", "")),
-                            "outcome": t.get("outcome", ""),
-                            "side": t.get("side", ""),
-                            "size": round(size, 2),
-                            "price": round(price, 4),
-                            "amount": round(size * price, 2),
-                            "asset": t.get("asset", ""),
-                        })
-        except Exception as e:
-            logger.warning(f"Failed to fetch Polymarket trades: {e}")
+        # Check USDCe deposited in proxy (Polymarket trading balance)
+        proxy_usdc_balance = 0.0
+        if proxy:
+            try:
+                padded_proxy = proxy.lower().replace("0x", "").zfill(64)
+                call_data = "0x70a08231" + padded_proxy
+                rpc_resp = req.post(rpc_url, json={
+                    "jsonrpc": "2.0", "method": "eth_call",
+                    "params": [{"to": usdc_e_contract, "data": call_data}, "latest"],
+                    "id": 1,
+                }, timeout=10)
+                if rpc_resp.ok:
+                    result = rpc_resp.json().get("result", "0x0")
+                    proxy_usdc_balance = int(result, 16) / (10 ** usdc_e_decimals)
+            except Exception as e:
+                logger.warning(f"Proxy USDC balance check failed: {e}")
 
         data = {
             "positions": positions,
             "trades": trades,
+            "proxy_wallet": proxy or "",
+            "proxy_usdc_balance": round(proxy_usdc_balance, 2),
             "summary": {
                 "total_positions": len(positions),
                 "total_invested": round(total_invested, 2),

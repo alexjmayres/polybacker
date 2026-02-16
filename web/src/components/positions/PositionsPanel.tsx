@@ -64,6 +64,8 @@ interface PortfolioPosition {
 interface PortfolioData {
   positions: PortfolioPosition[];
   trades: PortfolioTrade[];
+  proxy_wallet: string;
+  proxy_usdc_balance: number;
   summary: {
     total_positions: number;
     total_invested: number;
