@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { Header } from "@/components/Header";
@@ -11,7 +11,9 @@ import { CopyPanel } from "@/components/copy/CopyPanel";
 import { ArbPanel } from "@/components/arb/ArbPanel";
 import { PositionsPanel } from "@/components/positions/PositionsPanel";
 import { FundPanel } from "@/components/fund/FundPanel";
+import { WatchlistPanel } from "@/components/watchlist/WatchlistPanel";
 import { AdminPanel } from "@/components/admin/AdminPanel";
+import { usePreferences } from "@/hooks/usePreferences";
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -221,18 +223,38 @@ function Landing({ onEnter }: { onEnter: () => void }) {
 /* ──────────────────────── dashboard ─────────────────────── */
 
 function Dashboard({ onExit }: { onExit: () => void }) {
+  const { prefs, savePrefs } = usePreferences();
   const [activeTab, setActiveTab] = useState<Tab>("summary");
+  const prefsLoaded = useRef(false);
+
+  // Restore saved tab on mount
+  useEffect(() => {
+    if (prefsLoaded.current) return;
+    if (prefs.activeTab) {
+      const validTabs: Tab[] = ["summary", "copy", "arb", "positions", "watchlist", "fund", "admin"];
+      if (validTabs.includes(prefs.activeTab as Tab)) {
+        setActiveTab(prefs.activeTab as Tab);
+        prefsLoaded.current = true;
+      }
+    }
+  }, [prefs]);
+
+  const handleTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    savePrefs({ activeTab: tab });
+  }, [savePrefs]);
 
   return (
     <div className="min-h-screen">
       <div className="relative z-10">
         <Header onLogoClick={onExit} />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-          <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+          <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
           {activeTab === "summary" && <SummaryPanel />}
           {activeTab === "copy" && <CopyPanel />}
           {activeTab === "arb" && <ArbPanel />}
           {activeTab === "positions" && <PositionsPanel />}
+          {activeTab === "watchlist" && <WatchlistPanel />}
           {activeTab === "fund" && <FundPanel />}
           {activeTab === "admin" && <AdminPanel />}
         </main>

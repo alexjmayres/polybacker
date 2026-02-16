@@ -999,6 +999,85 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return jsonify({"error": "Not running"}), 400
 
     # =========================================================================
+    # Watchlist Endpoints
+    # =========================================================================
+
+    @app.route("/api/watchlist")
+    @auth
+    def get_watchlist():
+        """Get the authenticated user's watchlist."""
+        entries = db.get_watchlist(db_path, request.user_address)
+        return jsonify(entries)
+
+    @app.route("/api/watchlist", methods=["POST"])
+    @auth
+    def add_watchlist():
+        """Add a trader to the watchlist."""
+        data = request.json or {}
+        address = data.get("address", "")
+        alias = data.get("alias", "")
+        notes = data.get("notes", "")
+
+        if not address.startswith("0x") or len(address) != 42:
+            return jsonify({"error": "Invalid address"}), 400
+
+        entry_id = db.add_to_watchlist(
+            db_path, request.user_address, address, alias, notes,
+        )
+        if entry_id:
+            return jsonify({"message": f"Added {address}", "id": entry_id})
+        return jsonify({"error": "Already on watchlist"}), 409
+
+    @app.route("/api/watchlist/<int:entry_id>", methods=["PATCH"])
+    @auth
+    def update_watchlist(entry_id):
+        """Update alias or notes on a watchlist entry."""
+        data = request.json or {}
+        updated = db.update_watchlist_entry(
+            db_path, entry_id, request.user_address,
+            alias=data.get("alias"), notes=data.get("notes"),
+        )
+        if updated:
+            return jsonify({"message": "Updated"})
+        return jsonify({"error": "Not found"}), 404
+
+    @app.route("/api/watchlist/<int:entry_id>", methods=["DELETE"])
+    @auth
+    def remove_watchlist(entry_id):
+        """Remove a trader from the watchlist."""
+        if db.remove_from_watchlist(db_path, entry_id, request.user_address):
+            return jsonify({"message": "Removed"})
+        return jsonify({"error": "Not found"}), 404
+
+    @app.route("/api/watchlist/<address>/profile")
+    @auth
+    def watchlist_trader_profile(address):
+        """Get a watchlist trader's live profile from Polymarket.
+
+        Reuses the same logic as copy trader profiles.
+        """
+        return copy_trader_profile(address)
+
+    # =========================================================================
+    # User Preferences Endpoints
+    # =========================================================================
+
+    @app.route("/api/preferences")
+    @auth
+    def get_preferences():
+        """Get the authenticated user's persisted preferences."""
+        prefs = db.get_user_preferences(db_path, request.user_address)
+        return jsonify(prefs)
+
+    @app.route("/api/preferences", methods=["PATCH"])
+    @auth
+    def update_preferences():
+        """Merge new preferences into existing ones."""
+        data = request.json or {}
+        db.save_user_preferences(db_path, request.user_address, data)
+        return jsonify({"message": "Preferences saved"})
+
+    # =========================================================================
     # Wallet Balance Endpoints
     # =========================================================================
 

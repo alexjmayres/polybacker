@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
+import { usePreferences } from "@/hooks/usePreferences";
 
 interface Position {
   id: number;
@@ -47,10 +48,26 @@ const REFRESH_OPTIONS = [
 
 export function PositionsPanel() {
   const queryClient = useQueryClient();
+  const { prefs, savePrefs } = usePreferences();
   const [confirmClose, setConfirmClose] = useState(false);
   const [autoRedeem, setAutoRedeem] = useState(false);
   const [redeemInterval, setRedeemInterval] = useState(REFRESH_OPTIONS[1].value); // 15 min default
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  // Load persisted prefs on mount
+  useEffect(() => {
+    if (prefsLoaded) return;
+    if (prefs.autoRedeem !== undefined) {
+      setAutoRedeem(prefs.autoRedeem);
+    }
+    if (prefs.redeemInterval !== undefined) {
+      setRedeemInterval(prefs.redeemInterval);
+    }
+    if (prefs.autoRedeem !== undefined || prefs.redeemInterval !== undefined) {
+      setPrefsLoaded(true);
+    }
+  }, [prefs, prefsLoaded]);
 
   const { data: positions = [], isLoading } = useQuery<Position[]>({
     queryKey: ["positions"],
@@ -219,7 +236,11 @@ export function PositionsPanel() {
             {/* Auto-Redeem Toggle */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setAutoRedeem(!autoRedeem)}
+                onClick={() => {
+                  const next = !autoRedeem;
+                  setAutoRedeem(next);
+                  savePrefs({ autoRedeem: next });
+                }}
                 className="flex items-center gap-2"
               >
                 <div
@@ -268,6 +289,7 @@ export function PositionsPanel() {
                         onClick={() => {
                           setRedeemInterval(opt.value);
                           setShowIntervalDropdown(false);
+                          savePrefs({ redeemInterval: opt.value });
                         }}
                         className={`block w-full text-left px-3 py-1.5 mono text-[10px] uppercase tracking-wider transition-colors
                           hover:bg-[rgba(255,176,0,0.15)] ${

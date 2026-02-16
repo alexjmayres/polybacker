@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
 
@@ -153,8 +152,6 @@ function MiniChart({ data, label }: { data: PnlPoint[]; label: string }) {
 /* ─── Main TraderProfile component ─── */
 
 export function TraderProfile({ address }: { address: string }) {
-  const [chartDays, setChartDays] = useState<30 | 90>(30);
-
   const { data, isLoading, isError } = useQuery<TraderProfileData>({
     queryKey: ["trader-profile", address],
     queryFn: () => apiJson(`/api/copy/traders/${address}/profile`),
@@ -184,7 +181,6 @@ export function TraderProfile({ address }: { address: string }) {
 
   const { positions, trades } = data;
   const pnl30 = buildPnlFromTrades(trades, 30);
-  const pnl90 = buildPnlFromTrades(trades, 90);
   const totalTrades30 = pnl30.reduce((s, d) => s + d.trades, 0);
   const totalVolume30 = pnl30.reduce((s, d) => s + d.volume, 0);
 
@@ -208,10 +204,9 @@ export function TraderProfile({ address }: { address: string }) {
         </div>
       </div>
 
-      {/* PnL Charts */}
-      <div className="border border-[rgba(0,255,65,0.08)] bg-[rgba(0,0,0,0.2)] p-2 space-y-2">
+      {/* PnL Chart */}
+      <div className="border border-[rgba(0,255,65,0.08)] bg-[rgba(0,0,0,0.2)] p-2">
         <MiniChart data={pnl30} label="30 DAY PNL" />
-        <MiniChart data={pnl90} label="90 DAY PNL" />
       </div>
 
       {/* Open Positions */}

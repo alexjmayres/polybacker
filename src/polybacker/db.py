@@ -140,6 +140,23 @@ def init_db(db_path: str = "polybacker.db") -> str:
                 timestamp TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
+            -- Watchlist table (monitoring only, separate from copy-trading)
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_address TEXT NOT NULL,
+                trader_address TEXT NOT NULL,
+                alias TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(user_address, trader_address)
+            );
+
+            -- User preferences (persisted UI state)
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_address TEXT PRIMARY KEY,
+                preferences TEXT NOT NULL DEFAULT '{}'
+            );
+
             CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
             CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
             CREATE INDEX IF NOT EXISTS idx_trades_copied_from ON trades(copied_from);
@@ -153,6 +170,7 @@ def init_db(db_path: str = "polybacker.db") -> str:
             CREATE INDEX IF NOT EXISTS idx_fund_invest_investor ON fund_investments(investor_address);
             CREATE INDEX IF NOT EXISTS idx_fund_perf_fund_date ON fund_performance(fund_id, date);
             CREATE INDEX IF NOT EXISTS idx_fund_trades_fund ON fund_trades(fund_id);
+            CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_address);
         """)
 
         _migrate_db(conn)
@@ -896,3 +914,85 @@ def get_fund_by_name(db_path: str, name: str) -> Optional[dict]:
     with _connect(db_path) as conn:
         row = conn.execute("SELECT * FROM funds WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
+
+
+# --- Watchlist Operations ---
+
+def get_watchlist(db_path: str, user_address: str) -> list[dict]:
+    """Get all watchlist entries for a user."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM watchlist WHERE user_address = ? ORDER BY added_at DESC",
+            (user_address.lower(),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_to_watchlist(
+    db_path: str, user_address: str, trader_address: str,
+    alias: str = "", notes: str = "",
+) -> Optional[int]:
+    """Add a trader to the watchlist. Returns ID or None if already exists."""
+    with _connect(db_path) as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO watchlist (user_address, trader_address, alias, notes) VALUES (?, ?, ?, ?)",
+                (user_address.lower(), trader_address.lower(), alias, notes),
+            )
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            return None
+
+
+def update_watchlist_entry(
+    db_path: str, entry_id: int, user_address: str, **updates,
+) -> bool:
+    """Update alias or notes on a watchlist entry."""
+    valid = {k: v for k, v in updates.items() if k in ("alias", "notes")}
+    if not valid:
+        return False
+    sets = ", ".join(f"{k} = ?" for k in valid)
+    vals = list(valid.values()) + [entry_id, user_address.lower()]
+    with _connect(db_path) as conn:
+        result = conn.execute(
+            f"UPDATE watchlist SET {sets} WHERE id = ? AND user_address = ?", vals,
+        )
+        return result.rowcount > 0
+
+
+def remove_from_watchlist(db_path: str, entry_id: int, user_address: str) -> bool:
+    """Remove a trader from the watchlist."""
+    with _connect(db_path) as conn:
+        result = conn.execute(
+            "DELETE FROM watchlist WHERE id = ? AND user_address = ?",
+            (entry_id, user_address.lower()),
+        )
+        return result.rowcount > 0
+
+
+# --- User Preferences ---
+
+def get_user_preferences(db_path: str, user_address: str) -> dict:
+    """Get persisted user preferences (JSON blob)."""
+    import json
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT preferences FROM user_preferences WHERE user_address = ?",
+            (user_address.lower(),),
+        ).fetchone()
+        if row:
+            return json.loads(row["preferences"])
+        return {}
+
+
+def save_user_preferences(db_path: str, user_address: str, prefs: dict):
+    """Save user preferences (merge with existing)."""
+    import json
+    with _connect(db_path) as conn:
+        existing = get_user_preferences(db_path, user_address)
+        existing.update(prefs)
+        conn.execute(
+            """INSERT INTO user_preferences (user_address, preferences) VALUES (?, ?)
+               ON CONFLICT(user_address) DO UPDATE SET preferences = excluded.preferences""",
+            (user_address.lower(), json.dumps(existing)),
+        )
