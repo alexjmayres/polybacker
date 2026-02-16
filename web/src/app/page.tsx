@@ -268,15 +268,36 @@ function Dashboard({ onExit }: { onExit: () => void }) {
 type ViewState = "landing" | "transitioning" | "dashboard";
 
 export default function Home() {
-  const [view, setView] = useState<ViewState>("landing");
   const { isConnected } = useAccount();
+
+  // Auto-restore dashboard if user was previously in it and has a valid token
+  const [view, setView] = useState<ViewState>(() => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("polybacker_token");
+      const wasInDashboard = localStorage.getItem("polybacker_view") === "dashboard";
+      if (token && wasInDashboard) return "dashboard";
+    }
+    return "landing";
+  });
 
   /* if wallet disconnects while in dashboard, go back */
   useEffect(() => {
     if (!isConnected && view === "dashboard") {
       setView("landing");
+      localStorage.removeItem("polybacker_view");
     }
   }, [isConnected, view]);
+
+  // Persist view state
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (view === "dashboard") {
+        localStorage.setItem("polybacker_view", "dashboard");
+      } else if (view === "landing") {
+        localStorage.removeItem("polybacker_view");
+      }
+    }
+  }, [view]);
 
   const handleEnter = useCallback(() => {
     setView("transitioning");

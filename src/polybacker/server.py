@@ -53,6 +53,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     CORS(app, origins=[
         "https://polybacker.com",
         "https://www.polybacker.com",
+        "https://*.vercel.app",
         "http://localhost:3000",
     ])
     socketio = SocketIO(app, cors_allowed_origins="*")
@@ -98,6 +99,20 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     # Create auth decorator bound to this app's JWT secret
     auth = require_auth(settings.jwt_secret)
+
+    # =========================================================================
+    # Health / Version (no auth)
+    # =========================================================================
+
+    @app.route("/api/health")
+    def health():
+        """Health check — no auth required. Used to verify deploy version."""
+        import time as _t
+        return jsonify({
+            "status": "ok",
+            "version": "2026-02-16.2",
+            "timestamp": int(_t.time()),
+        })
 
     # -------------------------------------------------------------------------
     # Live PnL from Polymarket Data API — fallback when no local trades exist
@@ -1392,10 +1407,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                     raw = trades_resp.json()
                     if isinstance(raw, list):
                         for t in raw:
-                            tid = t.get("id", "")
-                            if tid in seen_ids:
+                            # Use transactionHash as unique ID (PM Data API has no 'id' field)
+                            tid = t.get("transactionHash", "") or t.get("id", "")
+                            if tid and tid in seen_ids:
                                 continue
-                            seen_ids.add(tid)
+                            if tid:
+                                seen_ids.add(tid)
                             size = float(t.get("size", 0) or 0)
                             price = float(t.get("price", 0) or 0)
                             trades.append({

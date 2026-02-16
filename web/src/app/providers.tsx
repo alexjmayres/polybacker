@@ -25,7 +25,16 @@ const config = getDefaultConfig({
   ssr: true,
 });
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,        // Data is fresh for 30s
+      gcTime: 5 * 60 * 1000,    // Keep unused data in cache for 5 min
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+  },
+});
 
 export function Providers({ children }: { children: ReactNode }) {
   const [authStatus, setAuthStatus] =
@@ -112,6 +121,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
         signOut: async () => {
           localStorage.removeItem("polybacker_token");
+          localStorage.removeItem("polybacker_view");
           setAuthStatus("unauthenticated");
         },
       }),
