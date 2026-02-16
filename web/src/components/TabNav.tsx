@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/hooks/useAuth";
 
-export type Tab = "summary" | "copy" | "arb" | "positions" | "watchlist" | "fund" | "admin";
+export type Tab = "summary" | "copy" | "arb" | "positions" | "watchlist" | "fund" | "settings" | "admin";
 
 interface TabNavProps {
   activeTab: Tab;
@@ -16,6 +16,7 @@ const tabs: { key: Tab; label: string; ownerOnly?: boolean }[] = [
   { key: "positions", label: "[POSITIONS]" },
   { key: "watchlist", label: "[WATCHLIST]" },
   { key: "fund", label: "[STF FUNDS]" },
+  { key: "settings", label: "[SETTINGS]" },
   { key: "admin", label: "[ADMIN]", ownerOnly: true },
 ];
 

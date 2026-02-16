@@ -13,6 +13,7 @@ import { PositionsPanel } from "@/components/positions/PositionsPanel";
 import { FundPanel } from "@/components/fund/FundPanel";
 import { WatchlistPanel } from "@/components/watchlist/WatchlistPanel";
 import { AdminPanel } from "@/components/admin/AdminPanel";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { usePreferences } from "@/hooks/usePreferences";
 
 /* ───────────────────────── helpers ───────────────────────── */
@@ -231,7 +232,7 @@ function Dashboard({ onExit }: { onExit: () => void }) {
   useEffect(() => {
     if (prefsLoaded.current) return;
     if (prefs.activeTab) {
-      const validTabs: Tab[] = ["summary", "copy", "arb", "positions", "watchlist", "fund", "admin"];
+      const validTabs: Tab[] = ["summary", "copy", "arb", "positions", "watchlist", "fund", "settings", "admin"];
       if (validTabs.includes(prefs.activeTab as Tab)) {
         setActiveTab(prefs.activeTab as Tab);
         prefsLoaded.current = true;
@@ -256,6 +257,7 @@ function Dashboard({ onExit }: { onExit: () => void }) {
           {activeTab === "positions" && <PositionsPanel />}
           {activeTab === "watchlist" && <WatchlistPanel />}
           {activeTab === "fund" && <FundPanel />}
+          {activeTab === "settings" && <SettingsPanel />}
           {activeTab === "admin" && <AdminPanel />}
         </main>
       </div>

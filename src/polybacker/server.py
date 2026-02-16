@@ -137,6 +137,43 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             logger.info("Polymarket CLOB client initialized (lazy)")
             return client
 
+    def _get_user_pm_client(user_address: str):
+        """Get a PolymarketClient configured with the user's own API creds.
+
+        Falls back to the shared server-level client if the user has no
+        stored credentials.
+        """
+        user_creds = db.get_user_api_creds(db_path, user_address)
+        if not user_creds or not user_creds.get("api_key"):
+            return _get_pm_client()
+
+        # Build a per-user Settings override
+        from polybacker.config import Settings
+        user_settings = settings.model_copy(update={
+            "api_key": user_creds["api_key"],
+            "api_secret": user_creds.get("api_secret", ""),
+            "api_passphrase": user_creds.get("api_passphrase", ""),
+        })
+        pm_addr = user_creds.get("polymarket_address", "")
+        if pm_addr:
+            user_settings = user_settings.model_copy(update={
+                "funder": pm_addr,
+                "polymarket_address": pm_addr,
+            })
+
+        from polybacker.client import PolymarketClient
+        try:
+            client = PolymarketClient(user_settings)
+        except Exception:
+            logger.warning("Per-user client init failed (HTTP/2), retrying HTTP/1.1")
+            import httpx
+            from py_clob_client.http_helpers import helpers as _helpers
+            _helpers._http_client = httpx.Client(http2=False)
+            client = PolymarketClient(user_settings)
+
+        logger.info(f"Created per-user Polymarket client for {user_address[:10]}...")
+        return client
+
     # Create auth decorator bound to this app's JWT secret
     auth = require_auth(settings.jwt_secret)
 
@@ -469,7 +506,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = _get_pm_client()
+            client = _get_user_pm_client(request.user_address)
 
             trader = CopyTrader(
                 settings=settings, client=client, dry_run=dry_run,
@@ -570,7 +607,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         Returns their current open positions and trade history for PnL charting.
         """
         try:
-            client = _get_pm_client()
+            client = _get_user_pm_client(request.user_address)
         except Exception:
             # If CLOB client can't init (no private key), use a basic requests client
             import requests as req
@@ -665,7 +702,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = _get_pm_client()
+            client = _get_user_pm_client(request.user_address)
 
             scanner = ArbitrageScanner(
                 settings=settings, client=client, dry_run=dry_run,
@@ -771,7 +808,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             return jsonify({"error": "No open positions to close"}), 400
 
         try:
-            client = _get_pm_client()
+            client = _get_user_pm_client(request.user_address)
         except Exception as e:
             return jsonify({"error": f"Failed to init trading client: {e}"}), 500
 
@@ -1039,7 +1076,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         dry_run = request.json.get("dry_run", False) if request.json else False
 
         try:
-            client = _get_pm_client()
+            client = _get_user_pm_client(request.user_address)
 
             fm = FundManager(settings=settings, client=client, dry_run=dry_run)
             app.config["fund_manager"] = fm
@@ -1141,6 +1178,74 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         data = request.json or {}
         db.save_user_preferences(db_path, request.user_address, data)
         return jsonify({"message": "Preferences saved"})
+
+    # =========================================================================
+    # User API Credentials (Builder API keys for Polymarket)
+    # =========================================================================
+
+    @app.route("/api/settings/api-creds")
+    @auth
+    def get_api_creds():
+        """Get the user's stored Polymarket Builder API credentials.
+
+        Returns masked versions of sensitive fields for display.
+        """
+        creds = db.get_user_api_creds(db_path, request.user_address)
+        if not creds:
+            return jsonify({
+                "api_key": "",
+                "api_secret": "",
+                "api_passphrase": "",
+                "polymarket_address": "",
+                "has_creds": False,
+            })
+
+        # Mask sensitive fields for display — show first 8 and last 4 chars
+        def _mask(val: str) -> str:
+            if not val or len(val) < 12:
+                return "••••••••" if val else ""
+            return val[:8] + "••••" + val[-4:]
+
+        return jsonify({
+            "api_key": creds.get("api_key", ""),  # Key is not super-sensitive
+            "api_secret": _mask(creds.get("api_secret", "")),
+            "api_passphrase": _mask(creds.get("api_passphrase", "")),
+            "polymarket_address": creds.get("polymarket_address", ""),
+            "has_creds": bool(creds.get("api_key")),
+            "updated_at": creds.get("updated_at", ""),
+        })
+
+    @app.route("/api/settings/api-creds", methods=["PUT"])
+    @auth
+    def save_api_creds():
+        """Save the user's Polymarket Builder API credentials."""
+        data = request.json or {}
+
+        api_key = data.get("api_key", "").strip()
+        api_secret = data.get("api_secret", "").strip()
+        api_passphrase = data.get("api_passphrase", "").strip()
+        pm_address = data.get("polymarket_address", "").strip().lower()
+
+        if not api_key:
+            return jsonify({"error": "API key is required"}), 400
+
+        db.save_user_api_creds(
+            db_path,
+            request.user_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            api_passphrase=api_passphrase,
+            polymarket_address=pm_address,
+        )
+
+        return jsonify({"message": "API credentials saved"})
+
+    @app.route("/api/settings/api-creds", methods=["DELETE"])
+    @auth
+    def delete_api_creds():
+        """Remove the user's stored API credentials."""
+        db.delete_user_api_creds(db_path, request.user_address)
+        return jsonify({"message": "API credentials removed"})
 
     # =========================================================================
     # Wallet Balance Endpoints

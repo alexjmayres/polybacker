@@ -157,6 +157,17 @@ def init_db(db_path: str = "polybacker.db") -> str:
                 preferences TEXT NOT NULL DEFAULT '{}'
             );
 
+            -- Per-user Polymarket Builder API credentials
+            CREATE TABLE IF NOT EXISTS user_api_creds (
+                user_address TEXT PRIMARY KEY,
+                api_key TEXT NOT NULL DEFAULT '',
+                api_secret TEXT NOT NULL DEFAULT '',
+                api_passphrase TEXT NOT NULL DEFAULT '',
+                polymarket_address TEXT NOT NULL DEFAULT '',
+                private_key_hash TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
             CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
             CREATE INDEX IF NOT EXISTS idx_trades_copied_from ON trades(copied_from);
@@ -996,4 +1007,66 @@ def save_user_preferences(db_path: str, user_address: str, prefs: dict):
             """INSERT INTO user_preferences (user_address, preferences) VALUES (?, ?)
                ON CONFLICT(user_address) DO UPDATE SET preferences = excluded.preferences""",
             (user_address.lower(), json.dumps(existing)),
+        )
+
+
+# =========================================================================
+# User API Credentials (per-user Builder API keys for Polymarket)
+# =========================================================================
+
+def get_user_api_creds(db_path: str, user_address: str) -> dict:
+    """Get stored API credentials for a user.
+
+    Returns dict with keys: api_key, api_secret, api_passphrase,
+    polymarket_address, updated_at.  Returns empty dict if none stored.
+    """
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM user_api_creds WHERE user_address = ?",
+            (user_address.lower(),),
+        ).fetchone()
+        if row:
+            return {
+                "api_key": row["api_key"],
+                "api_secret": row["api_secret"],
+                "api_passphrase": row["api_passphrase"],
+                "polymarket_address": row["polymarket_address"],
+                "updated_at": row["updated_at"],
+            }
+        return {}
+
+
+def save_user_api_creds(
+    db_path: str,
+    user_address: str,
+    *,
+    api_key: str = "",
+    api_secret: str = "",
+    api_passphrase: str = "",
+    polymarket_address: str = "",
+):
+    """Save or update a user's Polymarket Builder API credentials."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO user_api_creds
+                   (user_address, api_key, api_secret, api_passphrase,
+                    polymarket_address, updated_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_address) DO UPDATE SET
+                   api_key = excluded.api_key,
+                   api_secret = excluded.api_secret,
+                   api_passphrase = excluded.api_passphrase,
+                   polymarket_address = excluded.polymarket_address,
+                   updated_at = excluded.updated_at""",
+            (user_address.lower(), api_key, api_secret,
+             api_passphrase, polymarket_address),
+        )
+
+
+def delete_user_api_creds(db_path: str, user_address: str):
+    """Remove stored API credentials for a user."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM user_api_creds WHERE user_address = ?",
+            (user_address.lower(),),
         )
