@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
 
@@ -14,9 +15,11 @@ interface Trade {
 }
 
 export function CopyTradesList() {
+  const [limit, setLimit] = useState(20);
+
   const { data: trades = [] } = useQuery<Trade[]>({
-    queryKey: ["copy-trades"],
-    queryFn: () => apiJson("/api/copy/trades?limit=20"),
+    queryKey: ["copy-trades", limit],
+    queryFn: () => apiJson(`/api/copy/trades?limit=${limit}`),
     refetchInterval: 10000,
   });
 
@@ -90,6 +93,14 @@ export function CopyTradesList() {
           </tbody>
         </table>
       </div>
+      {trades.length >= limit && (
+        <button
+          onClick={() => setLimit((l) => l + 20)}
+          className="mono text-[10px] text-[var(--green-dark)] hover:text-[var(--green)] mt-3 w-full text-center py-2 border border-[rgba(0,255,65,0.08)] hover:border-[rgba(0,255,65,0.2)] transition-colors"
+        >
+          [ LOAD MORE ]
+        </button>
+      )}
     </div>
   );
 }

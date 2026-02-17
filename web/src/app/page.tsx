@@ -16,6 +16,8 @@ import { AdminPanel } from "@/components/admin/AdminPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ActivityLogPanel } from "@/components/log/ActivityLogPanel";
 import { usePreferences } from "@/hooks/usePreferences";
+import { useSocket } from "@/hooks/useSocket";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -226,6 +228,7 @@ function Landing({ onEnter }: { onEnter: () => void }) {
 
 function Dashboard({ onExit }: { onExit: () => void }) {
   const { prefs, savePrefs } = usePreferences();
+  const { status: botStatus, connected: socketConnected } = useSocket();
   const [activeTab, setActiveTab] = useState<Tab>("summary");
   const prefsLoaded = useRef(false);
 
@@ -249,18 +252,23 @@ function Dashboard({ onExit }: { onExit: () => void }) {
   return (
     <div className="min-h-screen">
       <div className="relative z-10">
-        <Header onLogoClick={onExit} />
+        <Header
+          onLogoClick={onExit}
+          copyStatus={botStatus.copy_trading}
+          arbStatus={botStatus.arbitrage}
+          connected={socketConnected}
+        />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
-          {activeTab === "summary" && <SummaryPanel />}
-          {activeTab === "copy" && <CopyPanel />}
-          {activeTab === "arb" && <ArbPanel />}
-          {activeTab === "positions" && <PositionsPanel />}
-          {activeTab === "watchlist" && <WatchlistPanel />}
-          {activeTab === "fund" && <FundPanel />}
-          {activeTab === "log" && <ActivityLogPanel />}
-          {activeTab === "settings" && <SettingsPanel />}
-          {activeTab === "admin" && <AdminPanel />}
+          {activeTab === "summary" && <ErrorBoundary label="Summary"><SummaryPanel /></ErrorBoundary>}
+          {activeTab === "copy" && <ErrorBoundary label="Copy Trading"><CopyPanel /></ErrorBoundary>}
+          {activeTab === "arb" && <ErrorBoundary label="Arbitrage"><ArbPanel /></ErrorBoundary>}
+          {activeTab === "positions" && <ErrorBoundary label="Positions"><PositionsPanel /></ErrorBoundary>}
+          {activeTab === "watchlist" && <ErrorBoundary label="Watchlist"><WatchlistPanel /></ErrorBoundary>}
+          {activeTab === "fund" && <ErrorBoundary label="STF Funds"><FundPanel /></ErrorBoundary>}
+          {activeTab === "log" && <ErrorBoundary label="Activity Log"><ActivityLogPanel /></ErrorBoundary>}
+          {activeTab === "settings" && <ErrorBoundary label="Settings"><SettingsPanel /></ErrorBoundary>}
+          {activeTab === "admin" && <ErrorBoundary label="Admin"><AdminPanel /></ErrorBoundary>}
         </main>
       </div>
     </div>

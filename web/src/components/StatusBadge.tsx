@@ -19,10 +19,10 @@ export function StatusBadge({ status, label }: StatusBadgeProps) {
   };
 
   return (
-    <div className="glass px-4 py-2 rounded-none mono text-sm flex items-center gap-2">
+    <div className="glass px-2 py-1 rounded-none mono text-[10px] flex items-center gap-1.5">
       <span className={`${colors[status]} ${status === "running" ? "blink" : ""}`}>&#9608;</span>
       <span className="text-[var(--green-dim)]">{label}</span>
-      <span className={`${colors[status]} text-xs`}>[{indicators[status]}]</span>
+      <span className={`${colors[status]}`}>[{indicators[status]}]</span>
     </div>
   );
 }

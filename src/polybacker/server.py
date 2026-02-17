@@ -485,36 +485,29 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     # Status
     # =========================================================================
 
+    def _build_status_payload() -> dict:
+        """Build engine status dict — used by REST, WebSocket, and broadcast."""
+        return {
+            "copy_trading": "running" if (app.config["copy_thread"] and app.config["copy_thread"].is_alive()) else "stopped",
+            "arbitrage": "running" if (app.config["arb_thread"] and app.config["arb_thread"].is_alive()) else "stopped",
+            "fund_manager": "running" if (app.config["fund_thread"] and app.config["fund_thread"].is_alive()) else "stopped",
+        }
+
     @app.route("/api/status")
     @auth
     def get_status():
-        copy_running = (
-            app.config["copy_thread"] is not None
-            and app.config["copy_thread"].is_alive()
-        )
-        arb_running = (
-            app.config["arb_thread"] is not None
-            and app.config["arb_thread"].is_alive()
-        )
-        fund_running = (
-            app.config["fund_thread"] is not None
-            and app.config["fund_thread"].is_alive()
-        )
-        return jsonify({
-            "copy_trading": "running" if copy_running else "stopped",
-            "arbitrage": "running" if arb_running else "stopped",
-            "fund_manager": "running" if fund_running else "stopped",
-            "config": {
-                "copy_percentage": settings.copy_percentage,
-                "min_copy_size": settings.min_copy_size,
-                "max_copy_size": settings.max_copy_size,
-                "max_daily_spend": settings.max_daily_spend,
-                "min_profit_pct": settings.min_profit_pct,
-                "trade_amount": settings.trade_amount,
-                "poll_interval": settings.poll_interval,
-                "auto_execute": settings.auto_execute,
-            },
-        })
+        payload = _build_status_payload()
+        payload["config"] = {
+            "copy_percentage": settings.copy_percentage,
+            "min_copy_size": settings.min_copy_size,
+            "max_copy_size": settings.max_copy_size,
+            "max_daily_spend": settings.max_daily_spend,
+            "min_profit_pct": settings.min_profit_pct,
+            "trade_amount": settings.trade_amount,
+            "poll_interval": settings.poll_interval,
+            "auto_execute": settings.auto_execute,
+        }
+        return jsonify(payload)
 
     # =========================================================================
     # Copy Trading Endpoints
@@ -565,6 +558,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             # Also start the position tracker if not already running
             _ensure_position_tracker(settings)
 
+            socketio.emit("status", _build_status_payload())
             return jsonify({"message": "Copy trading started", "dry_run": dry_run})
         except Exception as e:
             import traceback
@@ -578,6 +572,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if trader:
             trader.stop()
             app.config["copy_trader"] = None
+            socketio.emit("status", _build_status_payload())
             return jsonify({"message": "Copy trading stopped"})
         return jsonify({"error": "Not running"}), 400
 
@@ -858,6 +853,20 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         stats["max_slippage"] = settings.max_slippage
         return jsonify(stats)
 
+    @app.route("/api/copy/settings")
+    @auth
+    def get_copy_settings():
+        """Return the effective global copy trading settings (read-only)."""
+        return jsonify({
+            "copy_percentage": round(settings.copy_percentage * 100, 1),
+            "min_copy_size": settings.min_copy_size,
+            "max_copy_size": settings.max_copy_size,
+            "max_daily_spend": settings.max_daily_spend,
+            "order_mode": settings.order_mode,
+            "max_slippage": round(settings.max_slippage * 100, 1),
+            "poll_interval": settings.poll_interval,
+        })
+
     @app.route("/api/copy/traders/pnl")
     @auth
     def copy_traders_pnl():
@@ -976,6 +985,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             # Also start the position tracker if not already running
             _ensure_position_tracker(settings)
 
+            socketio.emit("status", _build_status_payload())
             return jsonify({"message": "Arbitrage started", "dry_run": dry_run})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -987,6 +997,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         if scanner:
             scanner.stop()
             app.config["arb_scanner"] = None
+            socketio.emit("status", _build_status_payload())
             return jsonify({"message": "Arbitrage stopped"})
         return jsonify({"error": "Not running"}), 400
 
@@ -2016,6 +2027,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         except Exception as e:
             logger.warning(f"Could not start position tracker: {e}")
 
+    # Start position tracker on server startup so prices stay fresh
+    try:
+        _ensure_position_tracker(settings)
+    except Exception as e:
+        logger.warning(f"Position tracker startup failed: {e}")
+
     # =========================================================================
     # WebSocket Events
     # =========================================================================
@@ -2028,23 +2045,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             if not payload:
                 return False  # Reject connection
 
-        copy_running = (
-            app.config["copy_thread"] is not None
-            and app.config["copy_thread"].is_alive()
-        )
-        arb_running = (
-            app.config["arb_thread"] is not None
-            and app.config["arb_thread"].is_alive()
-        )
-        fund_running = (
-            app.config["fund_thread"] is not None
-            and app.config["fund_thread"].is_alive()
-        )
-        emit("status", {
-            "copy_trading": "running" if copy_running else "stopped",
-            "arbitrage": "running" if arb_running else "stopped",
-            "fund_manager": "running" if fund_running else "stopped",
-        })
+        emit("status", _build_status_payload())
 
     return app, socketio
 

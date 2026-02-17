@@ -83,6 +83,22 @@ export function WatchlistPanel() {
     },
   });
 
+  const followMutation = useMutation({
+    mutationFn: async (entry: WatchlistEntry) => {
+      const res = await apiFetch("/api/copy/traders", {
+        method: "POST",
+        body: JSON.stringify({ address: entry.trader_address, alias: entry.alias }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to follow");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["copy-traders"] });
+    },
+  });
+
   const truncate = (addr: string) =>
     `${addr.slice(0, 8)}...${addr.slice(-6)}`;
 
@@ -115,10 +131,10 @@ export function WatchlistPanel() {
         </div>
         <div className="glass rounded-none p-4 slide-up">
           <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
-            WALLETS TRACKED
+            WITH ALIAS
           </div>
           <div className="text-xl sm:text-2xl font-bold mono text-[var(--green)]">
-            {watchlist.length}
+            {watchlist.filter((e: { alias?: string }) => e.alias).length}
           </div>
         </div>
       </div>
@@ -231,6 +247,17 @@ export function WatchlistPanel() {
                     <span className="text-[10px] text-[var(--green-dark)]">
                       {expandedId === entry.id ? "[-]" : "[+]"}
                     </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        followMutation.mutate(entry);
+                      }}
+                      disabled={followMutation.isPending}
+                      className="text-[var(--green-dark)] hover:text-[var(--green)] px-1 text-[10px] font-bold transition-colors disabled:opacity-30"
+                      title="Follow this trader for copy trading"
+                    >
+                      {followMutation.isPending ? "[...]" : "[FOLLOW]"}
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

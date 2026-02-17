@@ -14,6 +14,16 @@ interface ApiCreds {
   updated_at?: string;
 }
 
+interface CopySettings {
+  copy_percentage: number;
+  min_copy_size: number;
+  max_copy_size: number;
+  max_daily_spend: number;
+  order_mode: string;
+  max_slippage: number;
+  poll_interval: number;
+}
+
 export function SettingsPanel() {
   const queryClient = useQueryClient();
   const { address: walletAddress } = useAccount();
@@ -23,6 +33,13 @@ export function SettingsPanel() {
     queryKey: ["api-creds"],
     queryFn: () => apiJson("/api/settings/api-creds"),
     staleTime: 30000,
+  });
+
+  // Fetch global copy trading defaults
+  const { data: copySettings } = useQuery<CopySettings>({
+    queryKey: ["copy-settings"],
+    queryFn: () => apiJson("/api/copy/settings"),
+    staleTime: 60000,
   });
 
   // Form state
@@ -257,6 +274,39 @@ export function SettingsPanel() {
           </div>
         )}
       </div>
+
+      {/* Copy Trading Defaults */}
+      {copySettings && (
+        <div className="glass rounded-none p-4 sm:p-6">
+          <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
+            COPY TRADING DEFAULTS
+          </h3>
+          <p className="mono text-[10px] text-[var(--green-dark)]/50 mb-4">
+            Global defaults applied when no per-trader override is set.
+            Configure via environment variables on Render.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label: "COPY %", value: `${copySettings.copy_percentage}%` },
+              { label: "MIN SIZE", value: `$${copySettings.min_copy_size}` },
+              { label: "MAX SIZE", value: `$${copySettings.max_copy_size}` },
+              { label: "DAILY LIMIT", value: `$${copySettings.max_daily_spend}` },
+              { label: "ORDER MODE", value: copySettings.order_mode.toUpperCase() },
+              { label: "MAX SLIP", value: `${copySettings.max_slippage}%` },
+            ].map((item) => (
+              <div key={item.label} className="bg-black/30 border border-[var(--panel-border)] p-3">
+                <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+                  {item.label}
+                </div>
+                <div className="mono text-sm text-[var(--cyan)]">{item.value}</div>
+              </div>
+            ))}
+          </div>
+          <p className="mono text-[10px] text-[var(--green-dark)]/40 mt-3">
+            Poll interval: {copySettings.poll_interval}s
+          </p>
+        </div>
+      )}
 
       {/* Info box */}
       <div className="glass rounded-none p-4 sm:p-5">

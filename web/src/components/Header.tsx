@@ -1,12 +1,16 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { StatusBadge } from "./StatusBadge";
 
 interface HeaderProps {
   onLogoClick?: () => void;
+  copyStatus?: "running" | "stopped";
+  arbStatus?: "running" | "stopped";
+  connected?: boolean;
 }
 
-export function Header({ onLogoClick }: HeaderProps) {
+export function Header({ onLogoClick, copyStatus, arbStatus, connected }: HeaderProps) {
   return (
     <header className="glass border-b border-[var(--panel-border)] sticky top-0 z-50 rounded-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -31,7 +35,19 @@ export function Header({ onLogoClick }: HeaderProps) {
               </p>
             </div>
           </button>
-          <ConnectButton />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden sm:flex items-center gap-2">
+              <StatusBadge
+                status={connected ? (copyStatus ?? "stopped") : "loading"}
+                label="COPY"
+              />
+              <StatusBadge
+                status={connected ? (arbStatus ?? "stopped") : "loading"}
+                label="ARB"
+              />
+            </div>
+            <ConnectButton />
+          </div>
         </div>
       </div>
     </header>
