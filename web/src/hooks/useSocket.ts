@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+
 interface BotStatus {
   copy_trading: "running" | "stopped";
   arbitrage: "running" | "stopped";
@@ -16,20 +18,50 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("polybacker_token");
-    if (!token) return;
+    let socket: Socket | null = null;
+    let retryTimer: ReturnType<typeof setInterval> | null = null;
+    let retries = 0;
 
-    const socket: Socket = io({
-      auth: { token },
-      transports: ["websocket", "polling"],
-    });
+    const connect = () => {
+      const token = localStorage.getItem("polybacker_token");
+      if (!token) {
+        if (retries < 20) {
+          retries++;
+          return; // interval will retry
+        }
+        // Give up after 10s (20 * 500ms)
+        if (retryTimer) {
+          clearInterval(retryTimer);
+          retryTimer = null;
+        }
+        return;
+      }
 
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
-    socket.on("status", (data: BotStatus) => setStatus(data));
+      // Token found — stop retrying and connect
+      if (retryTimer) {
+        clearInterval(retryTimer);
+        retryTimer = null;
+      }
+
+      socket = io(API_BASE || undefined, {
+        auth: { token },
+        transports: ["websocket", "polling"],
+      });
+
+      socket.on("connect", () => setConnected(true));
+      socket.on("disconnect", () => setConnected(false));
+      socket.on("status", (data: BotStatus) => setStatus(data));
+    };
+
+    // Try immediately, then retry every 500ms if no token yet
+    connect();
+    if (!socket) {
+      retryTimer = setInterval(connect, 500);
+    }
 
     return () => {
-      socket.disconnect();
+      if (retryTimer) clearInterval(retryTimer);
+      if (socket) socket.disconnect();
     };
   }, []);
 
