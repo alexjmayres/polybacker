@@ -269,6 +269,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                 elif side == "BUY" and price < 0.5:
                     by_date[date_str]["profit"] += usd * (0.5 - price) * 0.4
 
+            # Fill in missing dates so chart shows a continuous 30-day line
+            start_date = dt.utcnow() - timedelta(days=days)
+            today_str = dt.utcnow().strftime("%Y-%m-%d")
+            for i in range(days + 1):
+                d = (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
+                if d > today_str:
+                    break
+                if d not in by_date:
+                    by_date[d] = {"trades": 0, "spent": 0.0, "profit": 0.0}
+
             # Build sorted series with cumulative P&L
             dates = sorted(by_date.keys())
             series = []
@@ -899,14 +909,15 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     @auth
     def copy_pnl():
         days = request.args.get("days", 30, type=int)
-        series = db.get_pnl_series(
-            db_path, strategy="copy", user_address=request.user_address,
-            days=days,
-        )
-        # If no local data, fall back to live Polymarket trades for the wallet
+        # Always use live Polymarket data (local DB is ephemeral on Render)
+        pm_wallet = _get_pm_wallet(request.user_address)
+        series = _fetch_live_pnl(pm_wallet, days)
         if not series:
-            pm_wallet = _get_pm_wallet(request.user_address)
-            series = _fetch_live_pnl(pm_wallet, days, strategy_filter="copy")
+            # Fall back to local DB if API fails
+            series = db.get_pnl_series(
+                db_path, strategy="copy", user_address=request.user_address,
+                days=days,
+            )
         return jsonify(series)
 
     # =========================================================================
@@ -972,14 +983,15 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     @auth
     def arb_pnl():
         days = request.args.get("days", 30, type=int)
-        series = db.get_pnl_series(
-            db_path, strategy="arbitrage", user_address=request.user_address,
-            days=days,
-        )
-        # If no local data, fall back to live Polymarket trades
+        # Always use live Polymarket data (local DB is ephemeral on Render)
+        pm_wallet = _get_pm_wallet(request.user_address)
+        series = _fetch_live_pnl(pm_wallet, days)
         if not series:
-            pm_wallet = _get_pm_wallet(request.user_address)
-            series = _fetch_live_pnl(pm_wallet, days, strategy_filter="arb")
+            # Fall back to local DB if API fails
+            series = db.get_pnl_series(
+                db_path, strategy="arbitrage", user_address=request.user_address,
+                days=days,
+            )
         return jsonify(series)
 
     # =========================================================================
@@ -1776,8 +1788,12 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                             size = float(p.get("size", 0) or 0)
                             if size <= 0:
                                 continue
+                            cur_price_raw = float(p.get("curPrice", 0) or p.get("currentPrice", 0) or 0)
+                            # Filter out resolved/expired positions (price went to 0 or 1 = market settled)
+                            if cur_price_raw <= 0.001:
+                                continue
                             avg_price = float(p.get("avgPrice", 0) or p.get("avg_price", 0) or 0)
-                            cur_price = float(p.get("curPrice", 0) or p.get("currentPrice", 0) or 0)
+                            cur_price = cur_price_raw
                             cost = size * avg_price
                             value = size * cur_price
                             pnl = value - cost

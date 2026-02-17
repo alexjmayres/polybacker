@@ -23,7 +23,7 @@ function RetroChart({ data, isDemo }: { data: PnlPoint[]; isDemo: boolean }) {
   if (data.length === 0) return null;
 
   const W = 600;
-  const H = 200;
+  const H = 140;
   const PAD_L = 55;
   const PAD_R = 10;
   const PAD_T = 15;
@@ -237,9 +237,9 @@ export function PnlChart({ strategy }: PnlChartProps) {
   const isPositive = totalProfit >= 0;
 
   return (
-    <div className="glass rounded-none p-4 sm:p-5 slide-up">
+    <div className="glass rounded-none p-3 sm:p-4 slide-up">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <div>
           <span className="text-[var(--green-dark)] text-xs">
             // PNL OVERVIEW
@@ -279,19 +279,19 @@ export function PnlChart({ strategy }: PnlChartProps) {
       {/* Chart */}
       <div className="border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-2">
         {isLoading ? (
-          <div className="h-[160px] flex items-center justify-center">
+          <div className="h-[100px] flex items-center justify-center">
             <span className="mono text-sm text-[var(--green-dim)]">
               LOADING CHART DATA<span className="blink">_</span>
             </span>
           </div>
         ) : isError ? (
-          <div className="h-[160px] flex items-center justify-center">
+          <div className="h-[100px] flex items-center justify-center">
             <span className="mono text-sm text-[var(--red)]">
               ERROR FETCHING DATA
             </span>
           </div>
         ) : !hasData ? (
-          <div className="h-[160px] flex items-center justify-center">
+          <div className="h-[100px] flex items-center justify-center">
             <span className="mono text-sm text-[var(--green-dark)]">
               AWAITING TRADE DATA<span className="blink">_</span>
             </span>
