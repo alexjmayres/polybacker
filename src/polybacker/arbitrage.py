@@ -126,15 +126,29 @@ class ArbitrageScanner:
             side=BUY,
         )
 
-        yes_ok = yes_result is not None
-        no_ok = no_result is not None
+        def _leg_ok(result: object) -> bool:
+            """True only if the order succeeded (not None, not an error dict)."""
+            if result is None:
+                return False
+            if isinstance(result, dict) and "error" in result:
+                return False
+            return True
+
+        yes_ok = _leg_ok(yes_result)
+        no_ok = _leg_ok(no_result)
         success = yes_ok and no_ok
 
         # Record trades
-        for token_id, side_amount, label, ok in [
-            (opportunity["yes_token"], yes_amount, "YES", yes_ok),
-            (opportunity["no_token"], no_amount, "NO", no_ok),
+        for token_id, side_amount, label, ok, result in [
+            (opportunity["yes_token"], yes_amount, "YES", yes_ok, yes_result),
+            (opportunity["no_token"], no_amount, "NO", no_ok, no_result),
         ]:
+            fail_reason = ""
+            if not ok:
+                if isinstance(result, dict) and "error" in result:
+                    fail_reason = result["error"]
+                else:
+                    fail_reason = "Order execution failed"
             db.record_trade(
                 db_path=self.db_path,
                 strategy="arbitrage",
@@ -145,7 +159,7 @@ class ArbitrageScanner:
                 price=opportunity[f"{label.lower()}_price"],
                 expected_profit=expected_profit / 2,
                 status="executed" if ok else "failed",
-                notes="" if ok else "Order execution failed",
+                notes="" if ok else fail_reason,
                 user_address=self.user_address,
             )
 
