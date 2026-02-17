@@ -243,7 +243,7 @@ class PolymarketClient:
             return response
         except Exception as e:
             logger.error(f"Error placing market order ({side} ${amount:.2f}): {e}")
-            return None
+            return {"error": str(e)}
 
     def place_limit_order(
         self,
@@ -281,7 +281,7 @@ class PolymarketClient:
             return response
         except Exception as e:
             logger.error(f"Error placing limit order ({side} {size:.2f}@{price:.4f}): {e}")
-            return None
+            return {"error": str(e)}
 
     def get_balance_allowance(self, token_id: Optional[str] = None) -> Optional[dict]:
         """Get balance and allowance info."""

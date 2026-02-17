@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # --- General ---
     poll_interval: int = Field(default=15, description="Seconds between polling cycles")
     auto_execute: bool = Field(default=True, description="Auto-execute trades vs dry-run")
-    db_path: str = Field(default="polybacker.db", description="Path to SQLite database")
+    db_path: str = Field(default="polybacker.db", alias="DB_PATH", description="Path to SQLite database")
 
     # --- Polymarket Trading Address ---
     polymarket_address: str = Field(

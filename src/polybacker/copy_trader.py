@@ -374,6 +374,7 @@ class CopyTrader:
             )
 
         status = "dry_run"
+        fail_reason = ""
         if not self.dry_run:
             try:
                 if use_limit:
@@ -389,16 +390,25 @@ class CopyTrader:
                         amount=copy_size,
                         side=clob_side,
                     )
-                status = "executed" if result else "failed"
-                if result:
+                # Check for error response from client
+                if isinstance(result, dict) and "error" in result:
+                    status = "failed"
+                    fail_reason = result["error"]
+                    logger.error(f"Order failed: {fail_reason}")
+                elif result:
+                    status = "executed"
                     logger.info(f"Order executed successfully: {result}")
                 else:
-                    logger.error(f"Order returned None/empty result")
+                    status = "failed"
+                    fail_reason = "Order returned empty result"
+                    logger.error(fail_reason)
             except Exception as e:
                 status = "failed"
+                fail_reason = str(e)
                 logger.error(f"Order execution error: {e}")
 
         # Record in DB
+        notes = fail_reason if fail_reason else None
         trade_record_id = db.record_trade(
             db_path=self.db_path,
             strategy="copy",
@@ -410,11 +420,19 @@ class CopyTrader:
             copied_from=trader_address.lower(),
             original_trade_id=trade_id,
             status=status,
+            notes=notes,
             user_address=self.user_address,
         )
 
         # Update trader stats and record event
-        if status == "executed":
+        if status == "failed":
+            self._record_event(
+                "trade_failed",
+                f"FAILED {side} ${copy_size:.2f} from {trader_alias} — {market[:60]}",
+                details=f"reason={fail_reason}, token={token_id[:16]}, "
+                        f"mode={'LIMIT' if use_limit else 'MARKET'}",
+            )
+        elif status == "executed":
             db.update_trader_stats(self.db_path, trader_address, copy_size, user_address=self.user_address)
             self._record_event(
                 "trade_copied",

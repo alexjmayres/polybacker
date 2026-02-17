@@ -3,9 +3,15 @@ services:
     name: polybacker-api
     runtime: python
     buildCommand: "pip install -r requirements.txt && pip install -e ."
-    startCommand: "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT 'polybacker.server:create_wsgi_app()'"
+    startCommand: "gunicorn --worker-class gthread -w 1 --threads 4 --bind 0.0.0.0:$PORT 'polybacker.server:create_wsgi_app()'"
+    disk:
+      name: polybacker-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: JWT_SECRET
         sync: false
       - key: POLYMARKET_PRIVATE_KEY
         sync: false
+      - key: DB_PATH
+        value: /data/polybacker.db
