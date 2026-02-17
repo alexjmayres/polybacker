@@ -17,6 +17,7 @@ interface Trader {
   max_copy_size: number | null;
   max_daily_spend: number | null;
   limit_order_pct: number | null;
+  order_mode: string | null;
 }
 
 interface TraderSettingsForm {
@@ -25,6 +26,7 @@ interface TraderSettingsForm {
   max_copy_size: string;
   max_daily_spend: string;
   limit_order_pct: string;
+  order_mode: string; // "market" | "limit" | "" (global default)
 }
 
 function TraderSettings({
@@ -41,11 +43,12 @@ function TraderSettings({
     max_copy_size: trader.max_copy_size != null ? String(trader.max_copy_size) : "",
     max_daily_spend: trader.max_daily_spend != null ? String(trader.max_daily_spend) : "",
     limit_order_pct: trader.limit_order_pct != null ? String(trader.limit_order_pct) : "",
+    order_mode: trader.order_mode || "",
   });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, number | null> = {};
+      const body: Record<string, number | string | null> = {};
 
       if (form.copy_percentage !== "") {
         body.copy_percentage = parseFloat(form.copy_percentage) / 100;
@@ -72,6 +75,12 @@ function TraderSettings({
       } else {
         body.limit_order_pct = null;
       }
+      // Order mode: "" means clear override (use global), else "market" or "limit"
+      if (form.order_mode) {
+        body.order_mode = form.order_mode;
+      } else {
+        body.order_mode = null;
+      }
 
       const res = await apiFetch(`/api/copy/traders/${trader.address}`, {
         method: "PATCH",
@@ -84,6 +93,7 @@ function TraderSettings({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["copy-traders"] });
+      queryClient.invalidateQueries({ queryKey: ["trader-pnl"] });
     },
   });
 
@@ -120,6 +130,48 @@ function TraderSettings({
         >
           <span className="crt-toggle-slider" />
         </button>
+      </div>
+
+      {/* Order Mode Switch */}
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest">
+          ORDER TYPE
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setForm((p) => ({ ...p, order_mode: "market" }))}
+            className={`px-2 py-1 text-[9px] mono font-bold border rounded-none transition-colors ${
+              form.order_mode === "market"
+                ? "bg-[var(--amber)] text-black border-[var(--amber)]"
+                : "text-[var(--green-dark)] border-[var(--panel-border)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
+            }`}
+          >
+            MARKET
+          </button>
+          <button
+            onClick={() => setForm((p) => ({ ...p, order_mode: "limit" }))}
+            className={`px-2 py-1 text-[9px] mono font-bold border rounded-none transition-colors ${
+              form.order_mode === "limit"
+                ? "bg-[var(--cyan)] text-black border-[var(--cyan)]"
+                : "text-[var(--green-dark)] border-[var(--panel-border)] hover:border-[var(--cyan)] hover:text-[var(--cyan)]"
+            }`}
+          >
+            LIMIT
+          </button>
+          {form.order_mode && (
+            <button
+              onClick={() => clearField("order_mode")}
+              className="text-[9px] text-[var(--green-dark)] hover:text-[var(--red)] transition-colors ml-1"
+            >
+              [CLR]
+            </button>
+          )}
+          {!form.order_mode && (
+            <span className="text-[8px] text-[var(--green-dark)] mono ml-1">
+              GLOBAL
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Settings fields */}
@@ -217,28 +269,30 @@ function TraderSettings({
           </button>
         </div>
 
-        {/* Limit Order +% */}
-        <div className="flex items-center gap-2">
-          <label className="mono text-[10px] text-[var(--green-dim)] w-20 shrink-0">
-            LIMIT +%
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="50"
-            step="0.5"
-            placeholder="GLOBAL: 2%"
-            value={form.limit_order_pct}
-            onChange={(e) => setForm((p) => ({ ...p, limit_order_pct: e.target.value }))}
-            className="flex-1 bg-transparent border border-[var(--panel-border)] rounded-none px-2 py-1 text-[10px] mono text-[var(--green)] focus:outline-none focus:border-[var(--green)] min-w-0"
-          />
-          <button
-            onClick={() => clearField("limit_order_pct")}
-            className="text-[9px] text-[var(--green-dark)] hover:text-[var(--red)] transition-colors"
-          >
-            [CLR]
-          </button>
-        </div>
+        {/* Limit Order +% — only show when order_mode is limit or unset */}
+        {form.order_mode !== "market" && (
+          <div className="flex items-center gap-2">
+            <label className="mono text-[10px] text-[var(--green-dim)] w-20 shrink-0">
+              SLIP +%
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="50"
+              step="0.5"
+              placeholder="GLOBAL: 2%"
+              value={form.limit_order_pct}
+              onChange={(e) => setForm((p) => ({ ...p, limit_order_pct: e.target.value }))}
+              className="flex-1 bg-transparent border border-[var(--panel-border)] rounded-none px-2 py-1 text-[10px] mono text-[var(--green)] focus:outline-none focus:border-[var(--green)] min-w-0"
+            />
+            <button
+              onClick={() => clearField("limit_order_pct")}
+              className="text-[9px] text-[var(--green-dark)] hover:text-[var(--red)] transition-colors"
+            >
+              [CLR]
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Save/error */}
@@ -293,6 +347,7 @@ export function FollowedTraders() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["copy-traders"] });
+      queryClient.invalidateQueries({ queryKey: ["trader-pnl"] });
       setNewAddress("");
       setNewAlias("");
     },
@@ -304,6 +359,7 @@ export function FollowedTraders() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["copy-traders"] });
+      queryClient.invalidateQueries({ queryKey: ["trader-pnl"] });
     },
   });
 
@@ -315,7 +371,8 @@ export function FollowedTraders() {
     t.min_copy_size != null ||
     t.max_copy_size != null ||
     t.max_daily_spend != null ||
-    t.limit_order_pct != null;
+    t.limit_order_pct != null ||
+    t.order_mode != null;
 
   return (
     <div className="glass rounded-none p-4 sm:p-5">
@@ -395,6 +452,18 @@ export function FollowedTraders() {
                     {hasOverride(trader) && (
                       <span className="text-[8px] text-[var(--amber)] border border-[var(--amber)] px-1 rounded-none leading-tight shrink-0">
                         CUSTOM
+                      </span>
+                    )}
+                    {/* Order mode badge */}
+                    {trader.order_mode && (
+                      <span
+                        className={`text-[8px] px-1 border rounded-none leading-tight shrink-0 ${
+                          trader.order_mode === "market"
+                            ? "text-[var(--amber)] border-[var(--amber)]"
+                            : "text-[var(--cyan)] border-[var(--cyan)]"
+                        }`}
+                      >
+                        {trader.order_mode.toUpperCase()}
                       </span>
                     )}
                   </div>

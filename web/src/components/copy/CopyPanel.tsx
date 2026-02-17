@@ -4,20 +4,21 @@ import { CopyStatsGrid } from "./CopyStatsGrid";
 import { FollowedTraders } from "./FollowedTraders";
 import { CopyTradesList } from "./CopyTradesList";
 import { CopyControls } from "./CopyControls";
+import { TraderPnlTable } from "./TraderPnlTable";
 
 export function CopyPanel() {
   return (
     <div className="space-y-6 slide-up">
       <CopyStatsGrid />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 space-y-6">
-          <CopyControls />
-          <FollowedTraders />
-        </div>
-        <div className="lg:col-span-2">
-          <CopyTradesList />
-        </div>
+      {/* Follow UI at the top with controls */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <FollowedTraders />
+        <CopyControls />
       </div>
+      {/* PNL per trader since followed */}
+      <TraderPnlTable />
+      {/* Trade history */}
+      <CopyTradesList />
     </div>
   );
 }

@@ -81,14 +81,18 @@ class PolymarketClient:
         """
         _rate_limit(self.settings.data_host)
         try:
-            resp = self._session.get(
-                f"{self.settings.data_host}/trades",
-                params={"user": address.lower(), "limit": limit},
-                timeout=15,
-            )
+            url = f"{self.settings.data_host}/trades"
+            params = {"user": address.lower(), "limit": limit}
+            logger.debug(f"Fetching trades: {url}?user={address.lower()[:10]}...&limit={limit}")
+            resp = self._session.get(url, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
-            return data if isinstance(data, list) else []
+            if isinstance(data, list):
+                logger.debug(f"Got {len(data)} trades for {address[:10]}...")
+                return data
+            else:
+                logger.warning(f"Unexpected response type for trades from {address[:10]}...: {type(data).__name__}")
+                return []
         except requests.RequestException as e:
             logger.error(f"Error fetching trades for {address[:10]}...: {e}")
             return []
@@ -226,6 +230,7 @@ class PolymarketClient:
         """
         _rate_limit(self.settings.clob_host)
         try:
+            logger.info(f"Placing market order: {side} ${amount:.2f} of {token_id[:16]}... (type={order_type})")
             order_args = MarketOrderArgs(
                 token_id=token_id,
                 amount=amount,
@@ -234,10 +239,10 @@ class PolymarketClient:
             )
             signed_order = self.clob.create_market_order(order_args)
             response = self.clob.post_order(signed_order, order_type)
-            logger.info(f"Order placed: {side} ${amount:.2f} of {token_id[:16]}...")
+            logger.info(f"Market order response: {response}")
             return response
         except Exception as e:
-            logger.error(f"Error placing order: {e}")
+            logger.error(f"Error placing market order ({side} ${amount:.2f}): {e}")
             return None
 
     def place_limit_order(
@@ -260,6 +265,10 @@ class PolymarketClient:
         """
         _rate_limit(self.settings.clob_host)
         try:
+            logger.info(
+                f"Placing limit order: {side} {size:.2f} shares @ {price:.4f} "
+                f"of {token_id[:16]}... (GTC)"
+            )
             order_args = OrderArgs(
                 token_id=token_id,
                 price=price,
@@ -268,13 +277,10 @@ class PolymarketClient:
             )
             signed_order = self.clob.create_order(order_args)
             response = self.clob.post_order(signed_order, OrderType.GTC)
-            logger.info(
-                f"Limit order placed: {side} {size:.2f} shares @ {price:.4f} "
-                f"of {token_id[:16]}..."
-            )
+            logger.info(f"Limit order response: {response}")
             return response
         except Exception as e:
-            logger.error(f"Error placing limit order: {e}")
+            logger.error(f"Error placing limit order ({side} {size:.2f}@{price:.4f}): {e}")
             return None
 
     def get_balance_allowance(self, token_id: Optional[str] = None) -> Optional[dict]:

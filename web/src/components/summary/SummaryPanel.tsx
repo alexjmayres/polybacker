@@ -143,10 +143,10 @@ export function SummaryPanel() {
                 )}
               </span>
               <a
-                href="https://polymarket.com/deposit"
+                href="https://polymarket.com/profile"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block text-[9px] mono font-bold text-black bg-[var(--green)] px-2 py-0.5 hover:bg-[var(--green-bright)] transition-all"
+                className="inline-block text-[8px] mono font-bold text-black bg-[var(--green)] px-1.5 py-0.5 hover:bg-[var(--green-bright)] transition-all leading-tight"
               >
                 DEPOSIT
               </a>
@@ -161,7 +161,7 @@ export function SummaryPanel() {
                 ${((balances?.total_usd ?? 0) + (portfolio?.proxy_usdc_balance ?? 0) + pmValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="text-[9px] mono text-[var(--green-dark)]">
-                USD (wallet + PM balance + positions)
+                USD (ALL IN)
               </div>
             </div>
           </div>

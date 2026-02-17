@@ -2,6 +2,7 @@
 
 Monitors wallet addresses on Polymarket and automatically mirrors their trades.
 Supports per-trader custom settings (copy %, min/max size, daily budget).
+Now supports per-trader order mode (market vs limit) and Telegram notifications.
 """
 
 from __future__ import annotations
@@ -37,9 +38,23 @@ class CopyTrader:
         self.user_address = user_address
         self.db_path = settings.db_path
         self._running = False
+        self._initial_scan_done = False
+        self._telegram = None
 
         # Ensure DB is initialized
         db.init_db(self.db_path)
+
+        # Initialize Telegram notifier if configured
+        try:
+            from polybacker.telegram_notifier import TelegramNotifier
+            self._telegram = TelegramNotifier(settings)
+            if self._telegram.enabled:
+                logger.info("Telegram notifications enabled")
+            else:
+                self._telegram = None
+        except Exception as e:
+            logger.debug(f"Telegram not configured: {e}")
+            self._telegram = None
 
     # -------------------------------------------------------------------------
     # Trader management
@@ -71,7 +86,56 @@ class CopyTrader:
 
     def get_traders(self) -> list[dict]:
         """Get all active followed traders."""
-        return db.get_active_traders(self.db_path)
+        return db.get_active_traders(self.db_path, user_address=self.user_address)
+
+    # -------------------------------------------------------------------------
+    # Event recording
+    # -------------------------------------------------------------------------
+
+    def _record_event(self, event_type: str, message: str, details: str = ""):
+        """Record an engine event to the activity log."""
+        try:
+            db.record_engine_event(
+                self.db_path,
+                event_type=event_type,
+                message=message,
+                strategy="copy",
+                details=details,
+                user_address=self.user_address,
+            )
+        except Exception:
+            pass  # Don't let logging failures break the engine
+
+    # -------------------------------------------------------------------------
+    # Initial scan — mark existing trades as seen to avoid copying old history
+    # -------------------------------------------------------------------------
+
+    def _initial_scan_trader(self, trader: dict) -> int:
+        """Mark all existing trades as seen without copying.
+
+        This prevents the engine from trying to copy historical trades
+        when it first starts. Only genuinely NEW trades (made after engine
+        start) will be copied.
+
+        Returns the count of trades marked as seen.
+        """
+        address = trader["address"]
+        alias = trader.get("alias", "") or address[:10] + "..."
+        trades = self.client.get_trader_trades(address, limit=20)
+        marked = 0
+
+        for trade in trades:
+            trade_id = self._get_trade_id(trade)
+            if not db.is_trade_seen(self.db_path, trade_id):
+                db.mark_trade_seen(self.db_path, trade_id)
+                marked += 1
+
+        if marked > 0:
+            logger.info(f"  Initial scan {alias}: marked {marked} existing trades as seen")
+        else:
+            logger.info(f"  Initial scan {alias}: no new trades to mark")
+
+        return marked
 
     # -------------------------------------------------------------------------
     # Per-trader settings resolution
@@ -88,6 +152,8 @@ class CopyTrader:
             "min_copy_size": trader.get("min_copy_size") if trader.get("min_copy_size") is not None else self.settings.min_copy_size,
             "max_copy_size": trader.get("max_copy_size") if trader.get("max_copy_size") is not None else self.settings.max_copy_size,
             "max_daily_spend": trader.get("max_daily_spend") if trader.get("max_daily_spend") is not None else self.settings.max_daily_spend,
+            "limit_order_pct": trader.get("limit_order_pct") if trader.get("limit_order_pct") is not None else (self.settings.max_slippage * 100),
+            "order_mode": trader.get("order_mode") if trader.get("order_mode") else self.settings.order_mode,
         }
 
     # -------------------------------------------------------------------------
@@ -115,7 +181,8 @@ class CopyTrader:
             trade.get("id")
             or trade.get("trade_id")
             or trade.get("transaction_hash")
-            or f"{trade.get('asset_id', '')}_{trade.get('timestamp', '')}"
+            or trade.get("transactionHash")
+            or f"{trade.get('asset_id', trade.get('asset', ''))}_{trade.get('timestamp', '')}"
         )
 
     def should_copy(self, trade: dict, trader: dict) -> tuple[bool, str]:
@@ -145,7 +212,7 @@ class CopyTrader:
                 return False, f"too_old ({age_seconds:.0f}s)"
 
         # 3. Has a token ID we can trade?
-        token_id = trade.get("asset_id") or trade.get("token_id")
+        token_id = trade.get("asset_id") or trade.get("token_id") or trade.get("asset")
         if not token_id:
             db.mark_trade_seen(self.db_path, trade_id)
             return False, "no_token_id"
@@ -157,12 +224,12 @@ class CopyTrader:
             return False, f"invalid_side: {side}"
 
         # 5. Global daily spend limit
-        daily_spend = db.get_daily_spend(self.db_path, strategy="copy")
+        daily_spend = db.get_daily_spend(self.db_path, strategy="copy", user_address=self.user_address)
         if daily_spend >= self.settings.max_daily_spend:
             return False, f"global_daily_limit_reached (${daily_spend:.2f})"
 
         # 6. Per-trader daily spend limit
-        trader_daily = db.get_trader_daily_spend(self.db_path, trader_address)
+        trader_daily = db.get_trader_daily_spend(self.db_path, trader_address, user_address=self.user_address)
         trader_max_daily = resolved["max_daily_spend"]
         if trader_daily >= trader_max_daily:
             return False, f"trader_daily_limit_reached (${trader_daily:.2f}/{trader_max_daily:.2f})"
@@ -192,13 +259,13 @@ class CopyTrader:
         copy_size = min(copy_size, resolved["max_copy_size"])
 
         # Don't exceed remaining global daily budget
-        daily_spend = db.get_daily_spend(self.db_path, strategy="copy")
+        daily_spend = db.get_daily_spend(self.db_path, strategy="copy", user_address=self.user_address)
         global_remaining = self.settings.max_daily_spend - daily_spend
         if copy_size > global_remaining:
             copy_size = global_remaining
 
         # Don't exceed remaining per-trader daily budget
-        trader_daily = db.get_trader_daily_spend(self.db_path, trader["address"])
+        trader_daily = db.get_trader_daily_spend(self.db_path, trader["address"], user_address=self.user_address)
         trader_remaining = resolved["max_daily_spend"] - trader_daily
         if copy_size > trader_remaining:
             copy_size = trader_remaining
@@ -209,11 +276,11 @@ class CopyTrader:
     # Trade execution
     # -------------------------------------------------------------------------
 
-    def _calculate_limit_price(self, trade: dict, side: str) -> Optional[float]:
-        """Calculate limit price from the trader's execution price + max slippage.
+    def _calculate_limit_price(self, trade: dict, side: str, slippage_pct: float = None) -> Optional[float]:
+        """Calculate limit price from the trader's execution price + slippage.
 
-        For BUY: limit = trader_price * (1 + max_slippage) — willing to pay up to X% more
-        For SELL: limit = trader_price * (1 - max_slippage) — willing to sell down to X% less
+        For BUY: limit = trader_price * (1 + slippage) — willing to pay up to X% more
+        For SELL: limit = trader_price * (1 - slippage) — willing to sell down to X% less
 
         Returns None if trader's price is unavailable.
         """
@@ -221,7 +288,7 @@ class CopyTrader:
         if trader_price <= 0:
             return None
 
-        slippage = self.settings.max_slippage
+        slippage = slippage_pct / 100 if slippage_pct is not None else self.settings.max_slippage
 
         if side == "BUY":
             limit = trader_price * (1.0 + slippage)
@@ -235,17 +302,19 @@ class CopyTrader:
     def execute_copy(self, trade: dict, trader: dict) -> bool:
         """Copy a single trade.
 
-        Supports two modes:
+        Supports two modes per trader:
         - 'market': FOK market order (immediate fill or cancel)
-        - 'limit': GTC limit order at trader's price + max_slippage
+        - 'limit': GTC limit order at trader's price + slippage
 
         Returns True if the trade was executed (or logged in dry-run).
         """
         trade_id = self._get_trade_id(trade)
-        token_id = trade.get("asset_id") or trade.get("token_id")
+        token_id = trade.get("asset_id") or trade.get("token_id") or trade.get("asset")
         side = trade.get("side", "").upper()
-        market = trade.get("market", "") or trade.get("title", "") or ""
+        market = trade.get("market", "") or trade.get("title", "") or trade.get("question", "") or ""
         trader_address = trader["address"]
+        trader_alias = trader.get("alias", "") or trader_address[:10] + "..."
+        resolved = self._resolve_settings(trader)
         copy_size = self.calculate_copy_size(trade, trader)
 
         if copy_size <= 0:
@@ -254,14 +323,16 @@ class CopyTrader:
             return False
 
         clob_side = BUY if side == "BUY" else SELL
-        use_limit = self.settings.order_mode == "limit"
+        # Use per-trader order_mode if set, otherwise global
+        use_limit = resolved["order_mode"] == "limit"
         trader_price = float(trade.get("price", 0) or 0)
 
         # For limit orders, calculate the capped price and convert USDC to shares
         limit_price = None
         num_shares = 0.0
+        slippage_pct = resolved.get("limit_order_pct")
         if use_limit:
-            limit_price = self._calculate_limit_price(trade, side)
+            limit_price = self._calculate_limit_price(trade, side, slippage_pct)
             if limit_price and limit_price > 0:
                 # Convert USDC amount to number of shares: shares = usdc / price
                 num_shares = round(copy_size / limit_price, 2)
@@ -272,37 +343,60 @@ class CopyTrader:
                     f"No trader price available — falling back to market order"
                 )
 
+        # Send Telegram notification about detected trade
+        if self._telegram:
+            try:
+                self._telegram.send_trader_trade_alert(
+                    trader_address=trader_address,
+                    trader_alias=trader_alias,
+                    side=side,
+                    market=market,
+                    size=float(trade.get("size", 0) or 0),
+                    price=trader_price,
+                )
+            except Exception as e:
+                logger.debug(f"Telegram trader alert failed: {e}")
+
         if use_limit:
+            effective_slip = slippage_pct if slippage_pct is not None else self.settings.max_slippage * 100
             logger.info(
                 f"{'[DRY RUN] ' if self.dry_run else ''}"
-                f"Copying trade from {trader_address[:10]}... | "
+                f"Copying trade from {trader_alias} | "
                 f"{side} {num_shares:.2f} shares @ {limit_price:.4f} "
-                f"(trader: {trader_price:.4f}, slip: {self.settings.max_slippage*100:.1f}%) | "
+                f"(trader: {trader_price:.4f}, slip: {effective_slip:.1f}%) | "
                 f"${copy_size:.2f} | {market[:50]}"
             )
         else:
             logger.info(
                 f"{'[DRY RUN] ' if self.dry_run else ''}"
-                f"Copying trade from {trader_address[:10]}... | "
+                f"Copying trade from {trader_alias} | "
                 f"{side} ${copy_size:.2f} [MARKET] | {market[:50]}"
             )
 
         status = "dry_run"
         if not self.dry_run:
-            if use_limit:
-                result = self.client.place_limit_order(
-                    token_id=token_id,
-                    price=limit_price,
-                    size=num_shares,
-                    side=clob_side,
-                )
-            else:
-                result = self.client.place_market_order(
-                    token_id=token_id,
-                    amount=copy_size,
-                    side=clob_side,
-                )
-            status = "executed" if result else "failed"
+            try:
+                if use_limit:
+                    result = self.client.place_limit_order(
+                        token_id=token_id,
+                        price=limit_price,
+                        size=num_shares,
+                        side=clob_side,
+                    )
+                else:
+                    result = self.client.place_market_order(
+                        token_id=token_id,
+                        amount=copy_size,
+                        side=clob_side,
+                    )
+                status = "executed" if result else "failed"
+                if result:
+                    logger.info(f"Order executed successfully: {result}")
+                else:
+                    logger.error(f"Order returned None/empty result")
+            except Exception as e:
+                status = "failed"
+                logger.error(f"Order execution error: {e}")
 
         # Record in DB
         trade_record_id = db.record_trade(
@@ -311,6 +405,7 @@ class CopyTrader:
             token_id=token_id,
             side=side,
             amount=copy_size,
+            price=trader_price,
             market=market,
             copied_from=trader_address.lower(),
             original_trade_id=trade_id,
@@ -318,33 +413,74 @@ class CopyTrader:
             user_address=self.user_address,
         )
 
-        # Update trader stats
+        # Update trader stats and record event
         if status == "executed":
-            db.update_trader_stats(self.db_path, trader_address, copy_size)
+            db.update_trader_stats(self.db_path, trader_address, copy_size, user_address=self.user_address)
+            self._record_event(
+                "trade_copied",
+                f"Copied {side} ${copy_size:.2f} from {trader_alias} — {market[:60]}",
+                details=f"token={token_id[:16]}, price={trader_price:.4f}, "
+                        f"mode={'LIMIT' if use_limit else 'MARKET'}",
+            )
 
             # Update position tracking
-            trade_price = float(trade.get("price", 0) or 0)
-            if trade_price > 0:
+            if trader_price > 0:
                 try:
                     db.upsert_position(
                         db_path=self.db_path,
-                        user_address=trader.get("user_address", "legacy"),
+                        user_address=self.user_address or "legacy",
                         token_id=token_id,
                         market=market,
                         side=side,
                         trade_amount=copy_size,
-                        trade_price=trade_price,
+                        trade_price=trader_price,
                         strategy="copy",
                         copied_from=trader_address.lower(),
                     )
                 except Exception as e:
                     logger.warning(f"Failed to upsert position: {e}")
 
+            # Send Telegram copy notification
+            if self._telegram:
+                try:
+                    self._telegram.send_copy_trade_alert(
+                        trader_address=trader_address,
+                        trader_alias=trader_alias,
+                        side=side,
+                        market=market,
+                        copy_size=copy_size,
+                        price=trader_price,
+                        order_mode="LIMIT" if use_limit else "MARKET",
+                        status=status,
+                    )
+                except Exception as e:
+                    logger.debug(f"Telegram copy alert failed: {e}")
+
         # Mark as seen
         db.mark_trade_seen(self.db_path, trade_id)
 
         if status == "failed":
             logger.error(f"Failed to execute copy trade for {trade_id}")
+            self._record_event(
+                "trade_failed",
+                f"Failed to copy {side} ${copy_size:.2f} from {trader_alias} — {market[:60]}",
+                details=f"token={token_id[:16]}, trade_id={trade_id}",
+            )
+            # Send failure Telegram notification
+            if self._telegram:
+                try:
+                    self._telegram.send_copy_trade_alert(
+                        trader_address=trader_address,
+                        trader_alias=trader_alias,
+                        side=side,
+                        market=market,
+                        copy_size=copy_size,
+                        price=trader_price,
+                        order_mode="LIMIT" if use_limit else "MARKET",
+                        status="failed",
+                    )
+                except Exception:
+                    pass
             return False
 
         return True
@@ -359,8 +495,12 @@ class CopyTrader:
         Returns the number of trades copied.
         """
         address = trader["address"]
-        trades = self.client.get_trader_trades(address, limit=10)
+        alias = trader.get("alias", "") or address[:10] + "..."
+        trades = self.client.get_trader_trades(address, limit=20)
         copied = 0
+        skipped = 0
+
+        logger.debug(f"Polling {alias}: got {len(trades)} trades from API")
 
         for trade in trades:
             should, reason = self.should_copy(trade, trader)
@@ -369,7 +509,11 @@ class CopyTrader:
                     copied += 1
             elif reason != "already_seen":
                 trade_id = self._get_trade_id(trade)
-                logger.debug(f"Skipped {trade_id[:16]}... — {reason}")
+                logger.debug(f"Skipped {trade_id[:16]}... from {alias} — {reason}")
+                skipped += 1
+
+        if copied > 0:
+            logger.info(f"Poll {alias}: copied {copied} trades, skipped {skipped}")
 
         return copied
 
@@ -377,15 +521,12 @@ class CopyTrader:
         """Main loop: poll all followed traders, copy new trades, repeat."""
         self._running = True
 
-        # Load traders from file on startup
-        self.load_traders_from_file()
-
+        # Traders come from the DB (added via web UI), not from traders.txt
         traders = self.get_traders()
         if not traders:
-            logger.error(
-                "No traders to follow! Add addresses to traders.txt or use: "
-                "polybacker copy --add-trader 0x..."
-            )
+            msg = "No traders to follow! Add trader addresses in the Copy Trade tab."
+            logger.error(msg)
+            self._record_event("engine_error", msg)
             return
 
         logger.info(f"Starting copy trading — following {len(traders)} traders")
@@ -393,12 +534,15 @@ class CopyTrader:
                      f"(${self.settings.min_copy_size}-${self.settings.max_copy_size})")
         logger.info(f"Daily limit: ${self.settings.max_daily_spend}")
         logger.info(f"Poll interval: {self.settings.poll_interval}s")
+        logger.info(f"Max trade age: {self.settings.max_trade_age}s")
         if self.settings.order_mode == "limit":
-            logger.info(f"Order mode: LIMIT (GTC) — max slippage: {self.settings.max_slippage * 100:.1f}%")
+            logger.info(f"Default order mode: LIMIT (GTC) — max slippage: {self.settings.max_slippage * 100:.1f}%")
         else:
-            logger.info(f"Order mode: MARKET (FOK)")
+            logger.info(f"Default order mode: MARKET (FOK)")
         if self.dry_run:
             logger.info("DRY RUN MODE — no real trades will be placed")
+        if self._telegram:
+            logger.info("Telegram notifications: ENABLED")
 
         # Log per-trader overrides
         for t in traders:
@@ -407,10 +551,38 @@ class CopyTrader:
                 ("min", t.get("min_copy_size")),
                 ("max", t.get("max_copy_size")),
                 ("daily", t.get("max_daily_spend")),
+                ("mode", t.get("order_mode")),
+                ("slip%", t.get("limit_order_pct")),
             ] if v is not None}
             if overrides:
                 logger.info(f"  {t['address'][:10]}... custom: {overrides}")
 
+        # ---- Initial scan: mark existing trades as seen ----
+        # This is critical! Without this, the first poll would fetch all
+        # historical trades, reject them as "too_old", and mark them seen.
+        # Then the engine would never find new trades to copy.
+        logger.info("")
+        logger.info("Performing initial scan — marking existing trades as seen...")
+        total_marked = 0
+        for trader in traders:
+            if not self._running:
+                break
+            try:
+                marked = self._initial_scan_trader(trader)
+                total_marked += marked
+            except Exception as e:
+                logger.error(f"Initial scan error for {trader['address'][:10]}...: {e}")
+
+        self._initial_scan_done = True
+        logger.info(f"Initial scan complete: {total_marked} historical trades marked. "
+                     f"Now monitoring for NEW trades only.")
+        self._record_event(
+            "engine_start",
+            f"Copy engine started — following {len(traders)} traders, "
+            f"marked {total_marked} historical trades as seen",
+            details=f"dry_run={self.dry_run}, poll={self.settings.poll_interval}s, "
+                    f"mode={self.settings.order_mode}",
+        )
         logger.info("")
 
         iteration = 0
@@ -426,20 +598,37 @@ class CopyTrader:
                         copied = self.poll_trader(trader)
                         total_copied += copied
                     except Exception as e:
-                        logger.error(
-                            f"Error polling {trader['address'][:10]}...: {e}"
+                        alias = trader.get("alias", "") or trader["address"][:10] + "..."
+                        logger.error(f"Error polling {alias}: {e}")
+                        self._record_event(
+                            "poll_error",
+                            f"Error polling {alias}: {e}",
+                            details=trader["address"],
                         )
 
                 if total_copied > 0:
                     logger.info(f"Scan #{iteration}: copied {total_copied} trades")
+                    self._record_event(
+                        "scan_result",
+                        f"Scan #{iteration}: copied {total_copied} trades",
+                    )
                 else:
                     logger.debug(f"Scan #{iteration}: no new trades")
 
-                # Periodic stats
+                # Periodic stats & refresh
                 if iteration % 20 == 0:
                     self._log_stats()
                     # Refresh trader list (in case new ones were added or settings changed)
+                    old_count = len(traders)
                     traders = self.get_traders()
+                    if len(traders) != old_count:
+                        logger.info(f"Trader list refreshed: {old_count} → {len(traders)}")
+                        # Run initial scan on any new traders
+                        for trader in traders:
+                            try:
+                                self._initial_scan_trader(trader)
+                            except Exception:
+                                pass
                     # Cleanup old dedup entries
                     db.cleanup_old_seen_trades(self.db_path)
 
@@ -450,6 +639,7 @@ class CopyTrader:
         finally:
             self._running = False
             self._log_stats()
+            self._record_event("engine_stop", "Copy engine stopped")
 
     def stop(self):
         """Signal the run loop to stop."""
@@ -457,8 +647,8 @@ class CopyTrader:
 
     def _log_stats(self):
         """Log current stats."""
-        stats = db.get_copy_stats(self.db_path)
-        daily = db.get_daily_spend(self.db_path, strategy="copy")
+        stats = db.get_copy_stats(self.db_path, user_address=self.user_address)
+        daily = db.get_daily_spend(self.db_path, strategy="copy", user_address=self.user_address)
         traders = self.get_traders()
 
         logger.info(

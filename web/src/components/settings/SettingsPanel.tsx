@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAccount } from "wagmi";
 import { apiJson, apiFetch } from "@/lib/api";
 
 interface ApiCreds {
@@ -15,6 +16,7 @@ interface ApiCreds {
 
 export function SettingsPanel() {
   const queryClient = useQueryClient();
+  const { address: walletAddress } = useAccount();
 
   // Fetch existing creds
   const { data: creds, isLoading } = useQuery<ApiCreds>({
@@ -99,6 +101,14 @@ export function SettingsPanel() {
         <p className="mono text-xs text-[var(--green-dim)] opacity-60">
           Configure your Polymarket Builder API credentials for trading.
         </p>
+        {walletAddress && (
+          <p className="mono text-[10px] text-[var(--cyan)] mt-2">
+            WALLET: {walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}
+            <span className="text-[var(--green-dark)] ml-2">
+              (all settings stored per wallet)
+            </span>
+          </p>
+        )}
       </div>
 
       {/* Builder API Credentials */}

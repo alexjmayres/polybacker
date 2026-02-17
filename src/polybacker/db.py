@@ -182,6 +182,20 @@ def init_db(db_path: str = "polybacker.db") -> str:
             CREATE INDEX IF NOT EXISTS idx_fund_perf_fund_date ON fund_performance(fund_id, date);
             CREATE INDEX IF NOT EXISTS idx_fund_trades_fund ON fund_trades(fund_id);
             CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_address);
+
+            -- Engine events table (activity log)
+            CREATE TABLE IF NOT EXISTS engine_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                event_type TEXT NOT NULL,
+                strategy TEXT DEFAULT '',
+                message TEXT NOT NULL,
+                details TEXT DEFAULT '',
+                user_address TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_engine_events_ts ON engine_events(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_engine_events_user ON engine_events(user_address);
+            CREATE INDEX IF NOT EXISTS idx_engine_events_type ON engine_events(event_type);
         """)
 
         _migrate_db(conn)
@@ -205,6 +219,7 @@ def _migrate_db(conn):
         ("max_copy_size", "REAL"),
         ("max_daily_spend", "REAL"),
         ("limit_order_pct", "REAL"),
+        ("order_mode", "TEXT"),
     ]:
         if col not in columns:
             conn.execute(
@@ -533,7 +548,7 @@ def get_all_traders(db_path: str, user_address: Optional[str] = None) -> list[di
 
 def update_trader_settings(db_path: str, address: str, user_address: str, **settings) -> bool:
     address = address.lower().strip()
-    valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "active"}
+    valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "order_mode", "active"}
     updates = []
     params = []
     for key, val in settings.items():
@@ -1070,3 +1085,128 @@ def delete_user_api_creds(db_path: str, user_address: str):
             "DELETE FROM user_api_creds WHERE user_address = ?",
             (user_address.lower(),),
         )
+
+
+# =========================================================================
+# Engine Events (Activity Log)
+# =========================================================================
+
+def record_engine_event(
+    db_path: str,
+    event_type: str,
+    message: str,
+    strategy: str = "",
+    details: str = "",
+    user_address: str = "",
+):
+    """Record a system event (engine start/stop, trade detected, errors, etc.)."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO engine_events (event_type, strategy, message, details, user_address)
+               VALUES (?, ?, ?, ?, ?)""",
+            (event_type, strategy, message, details, user_address),
+        )
+
+
+def get_activity_log(
+    db_path: str,
+    user_address: Optional[str] = None,
+    event_type: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    """Get unified activity log combining trades + engine events.
+
+    Returns a list of dicts with unified schema sorted by timestamp DESC.
+    """
+    with _connect(db_path) as conn:
+        # Build trades query
+        trade_conditions = []
+        trade_params: list = []
+        if user_address:
+            trade_conditions.append("user_address = ?")
+            trade_params.append(user_address)
+        if status:
+            trade_conditions.append("status = ?")
+            trade_params.append(status)
+        if search:
+            trade_conditions.append("(market LIKE ? OR copied_from LIKE ?)")
+            trade_params.extend([f"%{search}%", f"%{search}%"])
+        if event_type and event_type != "trade":
+            # If filtering for non-trade events, exclude trades from union
+            trade_where = "WHERE 1=0"
+        else:
+            trade_where = f"WHERE {' AND '.join(trade_conditions)}" if trade_conditions else ""
+
+        trades_sql = f"""
+            SELECT
+                id,
+                timestamp,
+                'trade' as type,
+                strategy,
+                market,
+                side,
+                amount,
+                price,
+                status,
+                copied_from as source_trader,
+                COALESCE(notes, '') as message,
+                COALESCE(original_trade_id, '') as details
+            FROM trades
+            {trade_where}
+        """
+
+        # Build engine events query
+        event_conditions = []
+        event_params: list = []
+        if user_address:
+            event_conditions.append("user_address = ?")
+            event_params.append(user_address)
+        if search:
+            event_conditions.append("(message LIKE ? OR details LIKE ?)")
+            event_params.extend([f"%{search}%", f"%{search}%"])
+        if event_type and event_type == "trade":
+            # If filtering for trades only, exclude engine events
+            event_where = "WHERE 1=0"
+        elif event_type and event_type == "error":
+            event_conditions.append("event_type IN ('trade_failed', 'poll_error', 'error')")
+            event_where = f"WHERE {' AND '.join(event_conditions)}" if event_conditions else ""
+        elif event_type and event_type not in ("trade", "error"):
+            event_conditions.append("event_type = ?")
+            event_params.append(event_type)
+            event_where = f"WHERE {' AND '.join(event_conditions)}" if event_conditions else ""
+        else:
+            event_where = f"WHERE {' AND '.join(event_conditions)}" if event_conditions else ""
+
+        events_sql = f"""
+            SELECT
+                id,
+                timestamp,
+                event_type as type,
+                strategy,
+                '' as market,
+                '' as side,
+                0.0 as amount,
+                0.0 as price,
+                '' as status,
+                '' as source_trader,
+                message,
+                details
+            FROM engine_events
+            {event_where}
+        """
+
+        # Combine with UNION ALL, sort, and paginate
+        combined_sql = f"""
+            SELECT * FROM (
+                {trades_sql}
+                UNION ALL
+                {events_sql}
+            ) ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+        """
+        all_params = trade_params + event_params + [limit, offset]
+        rows = conn.execute(combined_sql, all_params).fetchall()
+        return [dict(r) for r in rows]

@@ -62,6 +62,12 @@ class Settings(BaseSettings):
                     "This is often different from your MetaMask EOA.",
     )
 
+    # --- Telegram Notifications ---
+    telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN",
+                                     description="Telegram Bot token from @BotFather")
+    telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID",
+                                   description="Telegram chat/group ID for notifications")
+
     # --- API URLs (rarely need changing) ---
     clob_host: str = Field(default="https://clob.polymarket.com")
     gamma_host: str = Field(default="https://gamma-api.polymarket.com")

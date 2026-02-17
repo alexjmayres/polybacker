@@ -56,7 +56,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         "https://*.vercel.app",
         "http://localhost:3000",
     ])
-    socketio = SocketIO(app, cors_allowed_origins="*")
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
     db_path = settings.db_path
     db.init_db(db_path)
@@ -508,11 +508,18 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         try:
             client = _get_user_pm_client(request.user_address)
 
+            # Log how many traders exist for this user
+            active_traders = db.get_active_traders(db_path, user_address=request.user_address)
+            logger.info(
+                f"Starting copy engine for {request.user_address[:10]}... "
+                f"with {len(active_traders)} active traders, dry_run={dry_run}"
+            )
+
             trader = CopyTrader(
                 settings=settings, client=client, dry_run=dry_run,
                 user_address=request.user_address,
             )
-            trader.load_traders_from_file()
+            # Traders come from the DB (added via web UI) — no need for traders.txt
             app.config["copy_trader"] = trader
 
             thread = threading.Thread(target=trader.run, daemon=True)
@@ -537,6 +544,150 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             app.config["copy_trader"] = None
             return jsonify({"message": "Copy trading stopped"})
         return jsonify({"error": "Not running"}), 400
+
+    @app.route("/api/copy/test-trade", methods=["POST"])
+    @auth
+    def copy_test_trade():
+        """Execute a single test trade to verify the trading pipeline.
+
+        Fetches the most recent trade from a followed trader and runs it
+        through the full copy pipeline. Always dry-run by default.
+
+        Body (all optional):
+        {
+            "trader_address": "0x...",  // defaults to first followed trader
+            "live": false               // true to execute a real trade (default: false/dry-run)
+        }
+        """
+        import traceback
+
+        data = request.json or {}
+        trader_address = data.get("trader_address")
+        live = data.get("live", False)
+
+        try:
+            # Get followed traders
+            traders = db.get_active_traders(db_path, user_address=request.user_address)
+            if not traders:
+                return jsonify({"error": "No followed traders. Add a trader first."}), 400
+
+            # Find the target trader
+            target_trader = None
+            if trader_address:
+                for t in traders:
+                    if t["address"].lower() == trader_address.lower():
+                        target_trader = t
+                        break
+                if not target_trader:
+                    return jsonify({"error": f"Trader {trader_address} not found in followed list"}), 404
+            else:
+                target_trader = traders[0]
+
+            alias = target_trader.get("alias", "") or target_trader["address"][:10] + "..."
+
+            # Get user's PM client
+            client = _get_user_pm_client(request.user_address)
+
+            # Fetch recent trades for this trader
+            recent_trades = client.get_trader_trades(target_trader["address"], limit=5)
+            if not recent_trades:
+                return jsonify({
+                    "error": f"No recent trades found for {alias}. They may not have traded recently.",
+                    "trader": alias,
+                    "trader_address": target_trader["address"],
+                }), 404
+
+            # Use the most recent trade
+            trade = recent_trades[0]
+            trade_side = trade.get("side", "").upper() or "BUY"
+            trade_market = trade.get("market", "") or trade.get("title", "") or trade.get("question", "") or "Unknown market"
+            trade_price = float(trade.get("price", 0) or 0)
+            trade_size = float(trade.get("size", 0) or 0)
+            token_id = trade.get("asset_id") or trade.get("token_id") or trade.get("asset")
+
+            if not token_id:
+                return jsonify({
+                    "error": "Latest trade has no token ID — cannot simulate order",
+                    "trade": {
+                        "side": trade_side,
+                        "market": trade_market[:60],
+                        "price": trade_price,
+                        "size": trade_size,
+                    }
+                }), 400
+
+            # Create a temporary CopyTrader to calculate sizing
+            from polybacker.copy_trader import CopyTrader
+            temp_trader = CopyTrader(
+                settings=settings,
+                client=client,
+                dry_run=(not live),
+                user_address=request.user_address,
+            )
+
+            # Calculate copy size
+            copy_size = temp_trader.calculate_copy_size(trade, target_trader)
+            resolved = temp_trader._resolve_settings(target_trader)
+            order_mode = resolved["order_mode"]
+
+            # Build result
+            result = {
+                "trader": alias,
+                "trader_address": target_trader["address"],
+                "trade": {
+                    "side": trade_side,
+                    "market": trade_market[:80],
+                    "price": trade_price,
+                    "size": trade_size,
+                    "token_id": token_id[:20] + "..." if len(str(token_id)) > 20 else token_id,
+                },
+                "copy": {
+                    "copy_size_usd": copy_size,
+                    "order_mode": order_mode,
+                    "dry_run": not live,
+                },
+            }
+
+            if copy_size <= 0:
+                result["status"] = "skipped"
+                result["message"] = "Copy size is $0 — check daily limits or copy percentage"
+                return jsonify(result)
+
+            # Actually run through execute_copy if live, otherwise simulate
+            if live:
+                # Real execution
+                success = temp_trader.execute_copy(trade, target_trader)
+                result["status"] = "executed" if success else "failed"
+                result["message"] = f"{'Executed' if success else 'Failed'}: {trade_side} ${copy_size:.2f} on {trade_market[:50]}"
+            else:
+                # Dry run — just show what would happen
+                if order_mode == "limit":
+                    slippage_pct = resolved.get("limit_order_pct")
+                    limit_price = temp_trader._calculate_limit_price(trade, trade_side, slippage_pct)
+                    num_shares = round(copy_size / limit_price, 2) if limit_price else 0
+                    result["copy"]["limit_price"] = limit_price
+                    result["copy"]["num_shares"] = num_shares
+                result["status"] = "dry_run"
+                result["message"] = f"Test OK: Would {trade_side} ${copy_size:.2f} on {trade_market[:50]}"
+
+            # Record in activity log
+            try:
+                db.record_engine_event(
+                    db_path,
+                    event_type="test_trade",
+                    message=result["message"],
+                    strategy="copy",
+                    details=f"trader={alias}, side={trade_side}, amount=${copy_size:.2f}, mode={order_mode}, live={live}",
+                    user_address=request.user_address,
+                )
+            except Exception:
+                pass  # Don't fail the response over logging
+
+            return jsonify(result)
+
+        except Exception as e:
+            logger.error(f"Test trade error: {e}\n{traceback.format_exc()}")
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/api/copy/traders")
     @auth
@@ -573,10 +724,10 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         """Update per-trader copy settings.
 
         Accepts JSON with any subset of:
-        {copy_percentage, min_copy_size, max_copy_size, max_daily_spend, limit_order_pct, active}
+        {copy_percentage, min_copy_size, max_copy_size, max_daily_spend, limit_order_pct, order_mode, active}
         """
         data = request.json or {}
-        valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "active"}
+        valid_keys = {"copy_percentage", "min_copy_size", "max_copy_size", "max_daily_spend", "limit_order_pct", "order_mode", "active"}
         updates = {}
         for key in valid_keys:
             if key in data:
@@ -586,6 +737,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                     updates[key] = None
                 elif key == "active":
                     updates[key] = 1 if val else 0
+                elif key == "order_mode":
+                    # Validate order_mode is "market" or "limit"
+                    if val not in ("market", "limit", None):
+                        return jsonify({"error": "order_mode must be 'market' or 'limit'"}), 400
+                    updates[key] = val
                 else:
                     val = float(val)
                     if val < 0:
@@ -665,6 +821,72 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         stats["order_mode"] = settings.order_mode
         stats["max_slippage"] = settings.max_slippage
         return jsonify(stats)
+
+    @app.route("/api/copy/traders/pnl")
+    @auth
+    def copy_traders_pnl():
+        """Get PNL stats per followed trader since follow date.
+
+        Returns a list of trader performance summaries:
+        - total_copied, total_spent, realized approx PnL, trade count.
+        """
+        traders = db.get_all_traders(db_path, user_address=request.user_address)
+        result = []
+        for t in traders:
+            addr = t["address"]
+            followed_since = t.get("added_at", "")
+            alias = t.get("alias", "")
+
+            # Get trades copied from this trader
+            with db._connect(db_path) as conn:
+                rows = conn.execute(
+                    """SELECT COUNT(*) as trade_count,
+                              COALESCE(SUM(amount), 0) as total_spent,
+                              COALESCE(SUM(CASE WHEN status='executed' THEN amount ELSE 0 END), 0) as executed_spent,
+                              COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed_count
+                       FROM trades
+                       WHERE strategy = 'copy' AND copied_from = ? AND user_address = ?""",
+                    (addr.lower(), request.user_address),
+                ).fetchone()
+
+                trade_count = rows["trade_count"]
+                total_spent = rows["total_spent"]
+                executed_spent = rows["executed_spent"]
+                failed_count = rows["failed_count"]
+
+                # Get position PnL for this trader
+                pos_rows = conn.execute(
+                    """SELECT COALESCE(SUM(unrealized_pnl), 0) as total_pnl,
+                              COALESCE(SUM(size * current_price), 0) as current_value,
+                              COALESCE(SUM(cost_basis), 0) as cost_basis,
+                              COUNT(*) as position_count
+                       FROM positions
+                       WHERE copied_from = ? AND user_address = ? AND status = 'open'""",
+                    (addr.lower(), request.user_address),
+                ).fetchone()
+
+                unrealized_pnl = pos_rows["total_pnl"]
+                current_value = pos_rows["current_value"]
+                cost_basis = pos_rows["cost_basis"]
+                position_count = pos_rows["position_count"]
+
+            result.append({
+                "address": addr,
+                "alias": alias,
+                "active": bool(t.get("active", 0)),
+                "followed_since": followed_since,
+                "trade_count": trade_count,
+                "total_spent": round(total_spent, 2),
+                "executed_spent": round(executed_spent, 2),
+                "failed_count": failed_count,
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "current_value": round(current_value, 2),
+                "cost_basis": round(cost_basis, 2),
+                "position_count": position_count,
+                "order_mode": t.get("order_mode"),
+            })
+
+        return jsonify(result)
 
     def _get_pm_wallet(user_addr: str) -> str:
         """Get the best Polymarket wallet address for live data queries.
@@ -1218,7 +1440,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     @app.route("/api/settings/api-creds", methods=["PUT"])
     @auth
     def save_api_creds():
-        """Save the user's Polymarket Builder API credentials."""
+        """Save the user's Polymarket Builder API credentials.
+
+        Supports partial updates: only non-empty fields overwrite existing values.
+        This lets the frontend send just the key + address without wiping the secret.
+        """
         data = request.json or {}
 
         api_key = data.get("api_key", "").strip()
@@ -1228,6 +1454,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         if not api_key:
             return jsonify({"error": "API key is required"}), 400
+
+        # Merge with existing creds — don't overwrite secret/passphrase if empty
+        existing = db.get_user_api_creds(db_path, request.user_address)
+        if existing:
+            if not api_secret:
+                api_secret = existing.get("api_secret", "")
+            if not api_passphrase:
+                api_passphrase = existing.get("api_passphrase", "")
+            if not pm_address:
+                pm_address = existing.get("polymarket_address", "")
 
         db.save_user_api_creds(
             db_path,
@@ -1675,6 +1911,35 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             db_path, limit=limit, user_address=request.user_address,
         )
         return jsonify(trades)
+
+    @app.route("/api/activity-log")
+    @auth
+    def activity_log():
+        """Unified activity feed: trades + engine events.
+
+        Query params:
+            limit: max results (default 100)
+            offset: pagination offset (default 0)
+            type: filter by event type ("trade", "engine_start", "error", etc.)
+            status: filter trade status ("executed", "failed", "dry_run")
+            search: search market names and messages
+        """
+        limit = request.args.get("limit", 100, type=int)
+        offset = request.args.get("offset", 0, type=int)
+        event_type = request.args.get("type", None)
+        status = request.args.get("status", None)
+        search = request.args.get("search", None)
+
+        events = db.get_activity_log(
+            db_path,
+            user_address=request.user_address,
+            event_type=event_type,
+            status=status,
+            search=search,
+            limit=min(limit, 500),
+            offset=offset,
+        )
+        return jsonify(events)
 
     @app.route("/api/me")
     @auth
