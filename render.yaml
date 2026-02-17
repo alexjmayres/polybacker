@@ -13,5 +13,19 @@ services:
         sync: false
       - key: POLYMARKET_PRIVATE_KEY
         sync: false
+      - key: POLYMARKET_API_KEY
+        sync: false
+      - key: POLYMARKET_API_SECRET
+        sync: false
+      - key: POLYMARKET_API_PASSPHRASE
+        sync: false
+      - key: POLYMARKET_ADDRESS
+        sync: false
+      - key: FOLLOWED_TRADERS
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
       - key: DB_PATH
         value: /data/polybacker.db

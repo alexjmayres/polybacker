@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     auto_execute: bool = Field(default=True, description="Auto-execute trades vs dry-run")
     db_path: str = Field(default="polybacker.db", alias="DB_PATH", description="Path to SQLite database")
 
+    # --- Auto-Restore (survives ephemeral deploys via env vars) ---
+    followed_traders: str = Field(
+        default="",
+        alias="FOLLOWED_TRADERS",
+        description="Comma-separated list of traders to auto-follow on fresh DB. "
+                    "Format: 0xaddr1:Alias1,0xaddr2:Alias2",
+    )
+
     # --- Polymarket Trading Address ---
     polymarket_address: str = Field(
         default="",

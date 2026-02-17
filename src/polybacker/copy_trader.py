@@ -322,6 +322,9 @@ class CopyTrader:
             db.mark_trade_seen(self.db_path, trade_id)
             return False
 
+        # Mark as seen IMMEDIATELY to prevent duplicate copies in the same poll cycle
+        db.mark_trade_seen(self.db_path, trade_id)
+
         clob_side = BUY if side == "BUY" else SELL
         # Use per-trader order_mode if set, otherwise global
         use_limit = resolved["order_mode"] == "limit"
@@ -474,16 +477,8 @@ class CopyTrader:
                 except Exception as e:
                     logger.debug(f"Telegram copy alert failed: {e}")
 
-        # Mark as seen
-        db.mark_trade_seen(self.db_path, trade_id)
-
         if status == "failed":
-            logger.error(f"Failed to execute copy trade for {trade_id}")
-            self._record_event(
-                "trade_failed",
-                f"Failed to copy {side} ${copy_size:.2f} from {trader_alias} — {market[:60]}",
-                details=f"token={token_id[:16]}, trade_id={trade_id}",
-            )
+            logger.error(f"Failed to execute copy trade for {trade_id}: {fail_reason}")
             # Send failure Telegram notification
             if self._telegram:
                 try:

@@ -70,6 +70,21 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         db.add_to_whitelist(db_path, owner_address, added_by="system")
         logger.info(f"Owner address: {owner_address}")
 
+        # Auto-restore followed traders from env var (survives ephemeral deploys)
+        if settings.followed_traders:
+            existing_traders = db.get_active_traders(db_path, user_address=owner_address)
+            existing_addrs = {t["address"].lower() for t in existing_traders}
+            for entry in settings.followed_traders.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                parts = entry.split(":", 1)
+                addr = parts[0].strip().lower()
+                alias = parts[1].strip() if len(parts) > 1 else ""
+                if addr and addr not in existing_addrs:
+                    db.add_trader(db_path, addr, alias=alias, user_address=owner_address)
+                    logger.info(f"Auto-restored followed trader: {alias or addr[:10]}")
+
         # Auto-create PB500 Master Fund if it doesn't exist
         existing_funds = db.get_funds(db_path, active_only=False)
         pb500 = next((f for f in existing_funds if f["name"] == "PB500 Master Fund"), None)
@@ -517,6 +532,17 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
         try:
             client = _get_user_pm_client(request.user_address)
+
+            # Pre-flight: verify API credentials are configured
+            has_api_key = bool(settings.api_key)
+            user_creds = db.get_user_api_creds(db_path, request.user_address)
+            has_user_creds = bool(user_creds and user_creds.get("api_key"))
+            if not has_api_key and not has_user_creds:
+                return jsonify({
+                    "error": "No Builder API credentials configured. "
+                    "Go to Settings and enter your Polymarket Builder API key, secret, and passphrase. "
+                    "Get them from https://polymarket.com/settings/builder"
+                }), 400
 
             # Log how many traders exist for this user
             active_traders = db.get_active_traders(db_path, user_address=request.user_address)
