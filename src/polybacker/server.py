@@ -1542,12 +1542,32 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     # =========================================================================
 
     # Shared constants for on-chain RPC calls
-    rpc_url = "https://polygon-rpc.com"
+    # polygon-rpc.com is dead (403), use reliable free alternatives
+    _polygon_rpcs = [
+        "https://polygon-bor-rpc.publicnode.com",
+        "https://polygon.drpc.org",
+        "https://1rpc.io/matic",
+    ]
+    rpc_url = _polygon_rpcs[0]
     usdc_e_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
     usdc_e_decimals = 6
 
     _balance_cache: dict[str, tuple[float, dict]] = {}
     _BALANCE_CACHE_TTL = 30  # 30 seconds
+
+    def _rpc_call(payload: dict) -> dict | None:
+        """Make an RPC call with automatic fallback across multiple endpoints."""
+        import requests as req
+        for url in _polygon_rpcs:
+            try:
+                resp = req.post(url, json=payload, timeout=10)
+                if resp.ok:
+                    data = resp.json()
+                    if "error" not in data:
+                        return data
+            except Exception:
+                continue
+        return None
 
     @app.route("/api/wallet/balances")
     @auth
@@ -1567,19 +1587,17 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             if now - cached_time < _BALANCE_CACHE_TTL:
                 return jsonify(cached_data)
 
-        import requests as req
-
         # Fetch native POL (MATIC) balance
         pol_balance = 0.0
         try:
-            rpc_resp = req.post(rpc_url, json={
+            resp = _rpc_call({
                 "jsonrpc": "2.0",
                 "method": "eth_getBalance",
                 "params": [wallet, "latest"],
                 "id": 1,
-            }, timeout=10)
-            if rpc_resp.ok:
-                result = rpc_resp.json().get("result", "0x0")
+            })
+            if resp:
+                result = resp.get("result", "0x0")
                 pol_balance = int(result, 16) / 1e18
         except Exception as e:
             logger.warning(f"Failed to fetch POL balance: {e}")
@@ -1587,17 +1605,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         # Fetch USDCe balance (ERC-20 balanceOf)
         usdc_e_balance = 0.0
         try:
-            # balanceOf(address) selector = 0x70a08231
             padded_addr = wallet.lower().replace("0x", "").zfill(64)
             call_data = "0x70a08231" + padded_addr
-            rpc_resp = req.post(rpc_url, json={
+            resp = _rpc_call({
                 "jsonrpc": "2.0",
                 "method": "eth_call",
                 "params": [{"to": usdc_e_contract, "data": call_data}, "latest"],
                 "id": 2,
-            }, timeout=10)
-            if rpc_resp.ok:
-                result = rpc_resp.json().get("result", "0x0")
+            })
+            if resp:
+                result = resp.get("result", "0x0")
                 usdc_e_balance = int(result, 16) / (10 ** usdc_e_decimals)
         except Exception as e:
             logger.warning(f"Failed to fetch USDCe balance: {e}")
@@ -1659,19 +1676,17 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
 
     def _resolve_proxy_wallet(eoa_address: str) -> str | None:
         """Resolve the Polymarket proxy wallet address for an EOA via on-chain call."""
-        import requests as req
         try:
-            # getPolyProxyWalletAddress(address) selector = 0xedef7d8e
             padded = eoa_address.lower().replace("0x", "").zfill(64)
             call_data = "0xedef7d8e" + padded
             factory = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
-            rpc_resp = req.post(rpc_url, json={
+            resp = _rpc_call({
                 "jsonrpc": "2.0", "method": "eth_call",
                 "params": [{"to": factory, "data": call_data}, "latest"],
                 "id": 1,
-            }, timeout=10)
-            if rpc_resp.ok:
-                result = rpc_resp.json().get("result", "0x")
+            })
+            if resp:
+                result = resp.get("result", "0x")
                 if result and len(result) >= 66:
                     proxy = "0x" + result[-40:]
                     if proxy != "0x" + "0" * 40:
@@ -1914,18 +1929,16 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         # Check USDCe balance on the Polymarket trading address
         proxy_usdc_balance = 0.0
         if pm_address and pm_address.lower() != wallet.lower():
-            # Only check if the PM address is different from the EOA wallet
-            # (EOA USDCe is already shown in wallet balances)
             try:
                 padded_pm = pm_address.lower().replace("0x", "").zfill(64)
                 call_data = "0x70a08231" + padded_pm
-                rpc_resp = req.post(rpc_url, json={
+                resp = _rpc_call({
                     "jsonrpc": "2.0", "method": "eth_call",
                     "params": [{"to": usdc_e_contract, "data": call_data}, "latest"],
                     "id": 1,
-                }, timeout=10)
-                if rpc_resp.ok:
-                    result = rpc_resp.json().get("result", "0x0")
+                })
+                if resp:
+                    result = resp.get("result", "0x0")
                     proxy_usdc_balance = int(result, 16) / (10 ** usdc_e_decimals)
             except Exception as e:
                 logger.warning(f"PM trading balance check failed: {e}")
