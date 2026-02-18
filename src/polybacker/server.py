@@ -1,6 +1,3 @@
-import eventlet  # noqa: E402  — must be first import
-eventlet.monkey_patch()
-
 """Flask API server for the Polybacker dashboard.
 
 Provides REST endpoints and WebSocket events for real-time monitoring
@@ -59,7 +56,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         "https://*.vercel.app",
         "http://localhost:3000",
     ])
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
     db_path = settings.db_path
     db.init_db(db_path)

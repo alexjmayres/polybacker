@@ -626,10 +626,12 @@ def get_copy_stats(db_path: str, user_address: Optional[str] = None) -> dict:
             params.append(user_address)
         where = " AND ".join(conditions)
         row = conn.execute(
-            f"""SELECT COUNT(*) as total_trades, COALESCE(SUM(amount), 0) as total_spent,
+            f"""SELECT
+                COALESCE(SUM(CASE WHEN status = 'executed' THEN 1 ELSE 0 END), 0) as total_trades,
+                COALESCE(SUM(CASE WHEN status = 'executed' THEN amount ELSE 0 END), 0) as total_spent,
                 COALESCE(SUM(CASE WHEN status = 'executed' THEN amount ELSE 0 END), 0) as total_executed,
                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_trades,
-                COUNT(DISTINCT copied_from) as unique_traders_copied
+                COUNT(DISTINCT CASE WHEN status = 'executed' THEN copied_from END) as unique_traders_copied
                FROM trades WHERE {where}""",
             params,
         ).fetchone()

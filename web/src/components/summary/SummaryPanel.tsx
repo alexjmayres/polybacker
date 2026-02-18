@@ -103,66 +103,65 @@ export function SummaryPanel() {
 
       {/* Wallet + Polymarket Balances */}
       <div className="glass rounded-none p-4 sm:p-5 slide-up">
-        <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-3">
-          // WALLET BALANCES
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div>
-            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest">
+            // WALLET BALANCES
+          </h3>
+          <a
+            href="https://polymarket.com/profile"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[9px] mono font-bold text-black bg-[var(--green)] px-3 py-1 hover:bg-[var(--green-bright)] transition-all tracking-wider"
+          >
+            DEPOSIT
+          </a>
+        </div>
+
+        {/* Total Balance — prominent at top */}
+        <div className="border border-[rgba(0,255,65,0.1)] bg-[rgba(0,255,65,0.02)] p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest">
+              TOTAL BALANCE
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold mono text-[var(--green)]">
+              ${((balances?.total_usd ?? 0) + (portfolio?.proxy_usdc_balance ?? 0) + pmValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </div>
+
+        {/* Balance breakdown */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="border border-[rgba(0,255,65,0.06)] p-3">
+            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
               USDCe
             </div>
             <div className="text-lg font-bold mono text-[var(--cyan)]">
               ${(balances?.usdc_e_usd_value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[9px] mono text-[var(--green-dark)]">
-              {(balances?.usdc_e_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDCe
+            <div className="text-[9px] mono text-[var(--green-dark)] mt-1">
+              {(balances?.usdc_e_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} tokens
             </div>
           </div>
-          <div>
-            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
+          <div className="border border-[rgba(0,255,65,0.06)] p-3">
+            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
               POL
             </div>
             <div className="text-lg font-bold mono text-[var(--amber)]">
               ${(balances?.pol_usd_value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[9px] mono text-[var(--green-dark)]">
-              {(balances?.pol_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} POL @ ${(balances?.pol_price_usd ?? 0).toFixed(4)}
+            <div className="text-[9px] mono text-[var(--green-dark)] mt-1">
+              {(balances?.pol_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${(balances?.pol_price_usd ?? 0).toFixed(4)}
             </div>
           </div>
-          <div>
-            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-              PM TRADING BAL
+          <div className="border border-[rgba(0,255,65,0.06)] p-3">
+            <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-2">
+              PM TRADING
             </div>
             <div className="text-lg font-bold mono text-[var(--magenta)]">
               ${(portfolio?.proxy_usdc_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] mono text-[var(--green-dark)]">
-                {pmPositions > 0 ? `${pmPositions} positions ($${pmValue.toFixed(2)})` : (
-                  portfolio?.proxy_usdc_balance === 0 ? "deposit USDC to trade" : `${pmPositions} positions`
-                )}
-              </span>
-              <a
-                href="https://polymarket.com/profile"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block text-[8px] mono font-bold text-black bg-[var(--green)] px-1.5 py-0.5 hover:bg-[var(--green-bright)] transition-all leading-tight"
-              >
-                DEPOSIT
-              </a>
-            </div>
-          </div>
-          <div className="flex items-center justify-center sm:justify-end">
-            <div className="text-center sm:text-right">
-              <div className="text-[10px] text-[var(--green-dark)] uppercase tracking-widest mb-1">
-                TOTAL
-              </div>
-              <div className="text-2xl sm:text-3xl font-bold mono text-[var(--red)]">
-                ${((balances?.total_usd ?? 0) + (portfolio?.proxy_usdc_balance ?? 0) + pmValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div className="text-[9px] mono text-[var(--green-dark)]">
-                USD (ALL IN)
-              </div>
+            <div className="text-[9px] mono text-[var(--green-dark)] mt-1">
+              {pmPositions > 0 ? `${pmPositions} positions` : "available"}
             </div>
           </div>
         </div>
