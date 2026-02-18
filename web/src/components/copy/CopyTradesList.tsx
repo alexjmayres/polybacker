@@ -12,6 +12,7 @@ interface Trade {
   amount: number;
   copied_from: string;
   status: string;
+  notes: string | null;
 }
 
 export function CopyTradesList() {
@@ -86,6 +87,11 @@ export function CopyTradesList() {
                   </td>
                   <td className={`py-2 ${statusColor(t.status)}`}>
                     {t.status}
+                    {t.status === "failed" && t.notes && (
+                      <div className="text-[9px] text-[var(--red)] opacity-70 mt-0.5 max-w-[200px] truncate" title={t.notes}>
+                        {t.notes}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))

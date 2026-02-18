@@ -197,9 +197,23 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         import time as _t
         return jsonify({
             "status": "ok",
-            "version": "2026-02-16.2",
+            "version": "2026-02-18.1",
             "timestamp": int(_t.time()),
         })
+
+    @app.route("/api/debug/trade-errors")
+    def debug_trade_errors():
+        """Show recent failed trades with error reasons — for debugging only."""
+        try:
+            with db._connect(db_path) as conn:
+                rows = conn.execute(
+                    "SELECT id, timestamp, market, side, amount, status, notes "
+                    "FROM trades WHERE status = 'failed' "
+                    "ORDER BY timestamp DESC LIMIT 10"
+                ).fetchall()
+                return jsonify([dict(r) for r in rows])
+        except Exception as e:
+            return jsonify({"error": str(e)})
 
     # -------------------------------------------------------------------------
     # Live PnL from Polymarket Data API — fallback when no local trades exist
