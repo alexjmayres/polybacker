@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     auto_execute: bool = Field(default=True, description="Auto-execute trades vs dry-run")
     db_path: str = Field(default="polybacker.db", alias="DB_PATH", description="Path to SQLite database")
 
+    def model_post_init(self, __context):
+        """Auto-detect Render persistent disk and use it for DB if available."""
+        import os
+        if self.db_path == "polybacker.db" and os.path.isdir("/data"):
+            object.__setattr__(self, "db_path", "/data/polybacker.db")
+
     # --- Auto-Restore (survives ephemeral deploys via env vars) ---
     followed_traders: str = Field(
         default="",
