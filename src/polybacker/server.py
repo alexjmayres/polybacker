@@ -50,12 +50,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     static_dir = Path(__file__).parent.parent.parent / "server" / "static"
 
     app = Flask(__name__, static_folder=str(static_dir))
-    CORS(app, origins=[
-        "https://polybacker.com",
-        "https://www.polybacker.com",
-        "https://*.vercel.app",
-        "http://localhost:3000",
-    ])
+    CORS(app, origins="*", supports_credentials=False)
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
     db_path = settings.db_path
