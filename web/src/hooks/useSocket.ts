@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { API_BASE } from "@/lib/config";
 
 interface BotStatus {
   copy_trading: "running" | "stopped";

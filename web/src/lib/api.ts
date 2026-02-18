@@ -1,8 +1,4 @@
-/**
- * API base URL — uses env var in production (ngrok/VPS), empty string for
- * local dev (proxied via Next.js rewrites).
- */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { API_BASE } from "@/lib/config";
 
 /**
  * API client helper that attaches JWT Bearer token to all requests.

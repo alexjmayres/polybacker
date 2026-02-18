@@ -16,7 +16,7 @@ import { SiweMessage } from "siwe";
 
 import "@rainbow-me/rainbowkit/styles.css";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { API_BASE } from "@/lib/config";
 
 const config = getDefaultConfig({
   appName: "Polybacker",
