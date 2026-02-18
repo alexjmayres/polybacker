@@ -195,10 +195,15 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
     def health():
         """Health check — no auth required. Used to verify deploy version."""
         import time as _t
+        import os
         return jsonify({
             "status": "ok",
-            "version": "2026-02-18.1",
+            "version": "2026-02-18.2",
             "timestamp": int(_t.time()),
+            "db_path": db_path,
+            "db_exists": os.path.exists(db_path),
+            "db_dir_exists": os.path.exists(os.path.dirname(db_path)) if os.path.dirname(db_path) else True,
+            "followed_traders_env": bool(settings.followed_traders),
         })
 
     @app.route("/api/debug/trade-errors")
