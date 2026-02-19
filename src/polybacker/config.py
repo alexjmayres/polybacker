@@ -82,6 +82,20 @@ class Settings(BaseSettings):
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID",
                                    description="Telegram chat/group ID for notifications")
 
+    # --- VPN / Proxy (route Polymarket API through non-US IP) ---
+    proxy_url: str = Field(
+        default="",
+        alias="PROXY_URL",
+        description="SOCKS5/HTTP proxy URL for Polymarket API calls. "
+                    "e.g. socks5://127.0.0.1:25344 (wireproxy) or http://proxy:port",
+    )
+    wireguard_config: str = Field(
+        default="",
+        alias="WIREGUARD_CONFIG",
+        description="Base64-encoded WireGuard config for wireproxy. "
+                    "Encode your .conf with: base64 -w0 wg.conf",
+    )
+
     # --- API URLs (rarely need changing) ---
     clob_host: str = Field(default="https://clob.polymarket.com")
     gamma_host: str = Field(default="https://gamma-api.polymarket.com")

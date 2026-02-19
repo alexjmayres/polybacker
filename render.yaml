@@ -3,7 +3,7 @@ services:
     name: polybacker-api
     runtime: python
     buildCommand: "pip install -r requirements.txt && pip install -e ."
-    startCommand: "gunicorn --worker-class gthread -w 1 --threads 4 --bind 0.0.0.0:$PORT 'polybacker.server:create_wsgi_app()'"
+    startCommand: "bash scripts/start-with-vpn.sh"
     disk:
       name: polybacker-data
       mountPath: /data
@@ -29,3 +29,7 @@ services:
         sync: false
       - key: DB_PATH
         value: /data/polybacker.db
+      - key: WIREGUARD_CONFIG
+        sync: false
+      - key: PROXY_URL
+        sync: false

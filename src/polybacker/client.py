@@ -34,6 +34,27 @@ def _rate_limit(host: str):
     _last_request[host] = time.time()
 
 
+def _patch_clob_http_client(proxy_url: str = ""):
+    """Patch py-clob-client's global httpx client with proxy and/or HTTP/1.1 support.
+
+    Must be called BEFORE creating any ClobClient instances.
+    """
+    import httpx
+    from py_clob_client.http_helpers import helpers as _helpers
+
+    kwargs = {}
+    if proxy_url:
+        kwargs["proxy"] = proxy_url
+        logger.info(f"Routing CLOB API through proxy: {proxy_url[:30]}...")
+
+    # Try HTTP/2 first, fall back to HTTP/1.1 if it fails
+    try:
+        _helpers._http_client = httpx.Client(http2=True, **kwargs)
+    except Exception:
+        logger.warning("HTTP/2 init failed, falling back to HTTP/1.1")
+        _helpers._http_client = httpx.Client(http2=False, **kwargs)
+
+
 class PolymarketClient:
     """Unified Polymarket API client."""
 
@@ -44,6 +65,17 @@ class PolymarketClient:
             "Accept": "application/json",
             "User-Agent": "polybacker/0.1.0",
         })
+
+        # Patch the global httpx client with proxy support BEFORE creating CLOB client
+        _patch_clob_http_client(proxy_url=getattr(settings, "proxy_url", ""))
+
+        # If we have a SOCKS5 proxy, also route our requests.Session through it
+        proxy_url = getattr(settings, "proxy_url", "")
+        if proxy_url:
+            self._session.proxies = {
+                "http": proxy_url,
+                "https": proxy_url,
+            }
 
         # Initialize CLOB client
         client_params = {

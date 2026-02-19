@@ -132,19 +132,11 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
                 return client
 
             from polybacker.client import PolymarketClient
-            try:
-                client = PolymarketClient(settings)
-            except Exception:
-                # HTTP/2 can fail in threaded server contexts.
-                # Patch the py-clob-client's httpx client to HTTP/1.1 and retry.
-                logger.warning("HTTP/2 init failed, falling back to HTTP/1.1")
-                import httpx
-                from py_clob_client.http_helpers import helpers as _helpers
-                _helpers._http_client = httpx.Client(http2=False)
-                client = PolymarketClient(settings)
+            client = PolymarketClient(settings)
 
             app.config["pm_client"] = client
-            logger.info("Polymarket CLOB client initialized (lazy)")
+            proxy_info = f" (via proxy)" if settings.proxy_url else ""
+            logger.info(f"Polymarket CLOB client initialized{proxy_info}")
             return client
 
     def _get_user_pm_client(user_address: str):
@@ -172,15 +164,7 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             })
 
         from polybacker.client import PolymarketClient
-        try:
-            client = PolymarketClient(user_settings)
-        except Exception:
-            logger.warning("Per-user client init failed (HTTP/2), retrying HTTP/1.1")
-            import httpx
-            from py_clob_client.http_helpers import helpers as _helpers
-            _helpers._http_client = httpx.Client(http2=False)
-            client = PolymarketClient(user_settings)
-
+        client = PolymarketClient(user_settings)
         logger.info(f"Created per-user Polymarket client for {user_address[:10]}...")
         return client
 
@@ -198,12 +182,14 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         import os
         return jsonify({
             "status": "ok",
-            "version": "2026-02-18.2",
+            "version": "2026-02-18.3",
             "timestamp": int(_t.time()),
             "db_path": db_path,
             "db_exists": os.path.exists(db_path),
             "db_dir_exists": os.path.exists(os.path.dirname(db_path)) if os.path.dirname(db_path) else True,
             "followed_traders_env": bool(settings.followed_traders),
+            "proxy_url": bool(settings.proxy_url),
+            "wireguard": bool(os.environ.get("WIREGUARD_CONFIG")),
         })
 
     @app.route("/api/debug/trade-errors")
