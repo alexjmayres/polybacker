@@ -12,6 +12,24 @@ from typing import Optional
 
 def init_db(db_path: str = "polybacker.db") -> str:
     """Create database tables if they don't exist. Returns the db_path."""
+    import os
+    # Ensure parent directory exists
+    db_dir = Path(db_path).parent
+    if str(db_dir) != ".":
+        try:
+            db_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Can't create parent dir (e.g. /data not writable) — fall back to cwd
+            db_path = "polybacker.db"
+
+    # If path is still not writable, use a temp-safe location
+    try:
+        test_dir = Path(db_path).parent if str(Path(db_path).parent) != "." else Path(".")
+        if not os.access(str(test_dir), os.W_OK):
+            db_path = "/tmp/polybacker.db"
+    except Exception:
+        db_path = "/tmp/polybacker.db"
+
     with _connect(db_path) as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS trades (

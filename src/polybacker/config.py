@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     def model_post_init(self, __context):
         """Auto-detect Render persistent disk and use it for DB if available."""
         import os
-        if self.db_path == "polybacker.db" and os.path.isdir("/data"):
+        if self.db_path == "polybacker.db" and os.path.isdir("/data") and os.access("/data", os.W_OK):
             object.__setattr__(self, "db_path", "/data/polybacker.db")
 
     # --- Auto-Restore (survives ephemeral deploys via env vars) ---
