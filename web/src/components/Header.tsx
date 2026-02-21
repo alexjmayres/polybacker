@@ -1,6 +1,8 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge } from "./StatusBadge";
 
 interface HeaderProps {
@@ -11,6 +13,15 @@ interface HeaderProps {
 }
 
 export function Header({ onLogoClick, copyStatus, arbStatus, connected }: HeaderProps) {
+  const queryClient = useQueryClient();
+  const [spinning, setSpinning] = useState(false);
+
+  const handleRefresh = useCallback(() => {
+    setSpinning(true);
+    queryClient.invalidateQueries();
+    setTimeout(() => setSpinning(false), 800);
+  }, [queryClient]);
+
   return (
     <header className="glass border-b border-[var(--panel-border)] sticky top-0 z-50 rounded-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -36,6 +47,22 @@ export function Header({ onLogoClick, copyStatus, arbStatus, connected }: Header
             </div>
           </button>
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={handleRefresh}
+              title="Refresh all data"
+              className="w-8 h-8 flex items-center justify-center border border-[rgba(0,255,65,0.15)] hover:border-[var(--green)] hover:bg-[rgba(0,255,65,0.08)] text-[var(--green-dark)] hover:text-[var(--green)] transition-all"
+            >
+              <span
+                className="mono text-sm"
+                style={{
+                  display: "inline-block",
+                  transition: "transform 0.8s ease",
+                  transform: spinning ? "rotate(360deg)" : "rotate(0deg)",
+                }}
+              >
+                ↻
+              </span>
+            </button>
             <div className="hidden sm:flex items-center gap-2">
               <StatusBadge
                 status={connected ? (copyStatus ?? "stopped") : "loading"}
