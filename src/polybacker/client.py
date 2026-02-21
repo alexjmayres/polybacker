@@ -190,15 +190,30 @@ class PolymarketClient:
             logger.error(f"Error fetching markets: {e}")
             return []
 
-    def search_markets(self, query: str, limit: int = 20) -> list[dict]:
-        """Search markets by keyword."""
-        markets = self.get_active_markets(limit=100)
-        query_lower = query.lower()
-        return [
-            m for m in markets
-            if query_lower in m.get("question", "").lower()
-            or query_lower in m.get("description", "").lower()
-        ][:limit]
+    def search_markets(self, query: str = "", limit: int = 20, sort: str = "volume24hr") -> list[dict]:
+        """Search markets via Gamma API with server-side search."""
+        _rate_limit(self.settings.gamma_host)
+        try:
+            params = {
+                "limit": limit,
+                "active": "true",
+                "closed": "false",
+                "order": sort,
+                "ascending": "false",
+            }
+            if query:
+                params["search"] = query
+            resp = self._session.get(
+                f"{self.settings.gamma_host}/markets",
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.RequestException as e:
+            logger.error(f"Error searching markets: {e}")
+            return []
 
     # -------------------------------------------------------------------------
     # CLOB API — pricing, order books, trading

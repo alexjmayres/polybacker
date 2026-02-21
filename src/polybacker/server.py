@@ -1543,6 +1543,163 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
         return jsonify({"message": "API credentials removed"})
 
     # =========================================================================
+    # Markets — Browse & Trade
+    # =========================================================================
+
+    @app.route("/api/markets/search")
+    @auth
+    def markets_search():
+        """Search active markets. Query params: q (search term), limit, sort."""
+        query = request.args.get("q", "")
+        limit = request.args.get("limit", 20, type=int)
+        sort = request.args.get("sort", "volume24hr")
+
+        try:
+            client = _get_user_pm_client(request.user_address)
+        except Exception:
+            # Fallback: use a basic requests session for public API
+            import requests as req
+            resp = req.get(
+                f"{settings.gamma_host}/markets",
+                params={
+                    "search": query, "limit": min(limit, 50),
+                    "active": "true", "closed": "false",
+                    "order": sort, "ascending": "false",
+                },
+                timeout=15,
+            )
+            if resp.ok:
+                return jsonify(_format_markets(resp.json()))
+            return jsonify([])
+
+        markets = client.search_markets(query=query, limit=min(limit, 50), sort=sort)
+        return jsonify(_format_markets(markets))
+
+    def _format_markets(raw_markets: list) -> list:
+        """Format raw Gamma API markets into a clean response."""
+        import json as _json
+        results = []
+        for m in raw_markets:
+            try:
+                outcomes = _json.loads(m.get("outcomes", "[]")) if isinstance(m.get("outcomes"), str) else m.get("outcomes", [])
+                prices = _json.loads(m.get("outcomePrices", "[]")) if isinstance(m.get("outcomePrices"), str) else m.get("outcomePrices", [])
+                tokens = _json.loads(m.get("clobTokenIds", "[]")) if isinstance(m.get("clobTokenIds"), str) else m.get("clobTokenIds", [])
+
+                results.append({
+                    "id": m.get("id"),
+                    "question": m.get("question", ""),
+                    "slug": m.get("slug", ""),
+                    "image": m.get("image", ""),
+                    "category": m.get("category", ""),
+                    "end_date": m.get("endDate", ""),
+                    "outcomes": outcomes,
+                    "prices": [float(p) for p in prices] if prices else [],
+                    "tokens": tokens,
+                    "volume_24h": m.get("volume24hr", 0) or 0,
+                    "volume_total": m.get("volumeNum", 0) or 0,
+                    "liquidity": m.get("liquidityNum", 0) or 0,
+                })
+            except Exception:
+                continue
+        return results
+
+    @app.route("/api/markets/<market_id>/orderbook")
+    @auth
+    def market_orderbook(market_id):
+        """Get order book for a specific token. Query param: token_id."""
+        token_id = request.args.get("token_id", "")
+        if not token_id:
+            return jsonify({"error": "token_id required"}), 400
+        try:
+            client = _get_user_pm_client(request.user_address)
+            book = client.get_order_book(token_id)
+            midpoint = client.get_midpoint(token_id)
+            spread = client.get_spread(token_id)
+            return jsonify({
+                "order_book": book,
+                "midpoint": midpoint,
+                "spread": spread,
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/markets/trade", methods=["POST"])
+    @auth
+    def markets_trade():
+        """Place a trade on any market.
+
+        Body: {
+            token_id: str,
+            side: "BUY" | "SELL",
+            amount: float (USDC for market orders),
+            order_type: "market" | "limit",
+            price: float (required for limit orders),
+            size: float (shares, required for limit orders),
+        }
+        """
+        data = request.json or {}
+        token_id = data.get("token_id", "")
+        side = data.get("side", "").upper()
+        order_type = data.get("order_type", "market")
+        amount = data.get("amount", 0)
+        price = data.get("price", 0)
+        size = data.get("size", 0)
+
+        if not token_id:
+            return jsonify({"error": "token_id required"}), 400
+        if side not in ("BUY", "SELL"):
+            return jsonify({"error": "side must be BUY or SELL"}), 400
+
+        try:
+            client = _get_user_pm_client(request.user_address)
+        except Exception as e:
+            return jsonify({"error": f"Failed to init trading client: {e}"}), 500
+
+        from py_clob_client.order_builder.constants import BUY, SELL
+        clob_side = BUY if side == "BUY" else SELL
+
+        try:
+            if order_type == "limit":
+                if not price or not size:
+                    return jsonify({"error": "price and size required for limit orders"}), 400
+                result = client.place_limit_order(
+                    token_id=token_id,
+                    price=float(price),
+                    size=float(size),
+                    side=clob_side,
+                )
+            else:
+                if not amount or amount < 1:
+                    return jsonify({"error": "amount required (min $1)"}), 400
+                result = client.place_market_order(
+                    token_id=token_id,
+                    amount=float(amount),
+                    side=clob_side,
+                )
+
+            if isinstance(result, dict) and "error" in result:
+                return jsonify({"success": False, "error": result["error"]}), 400
+
+            # Record in DB
+            market_name = data.get("market", "Direct trade")
+            db.record_trade(
+                db_path=db_path,
+                strategy="manual",
+                token_id=token_id,
+                side=side,
+                amount=float(amount) if order_type == "market" else float(price) * float(size),
+                price=float(price) if price else None,
+                status="executed",
+                notes=f"Manual {order_type} order via Markets tab",
+                user_address=request.user_address,
+            )
+
+            return jsonify({"success": True, "result": result})
+        except Exception as e:
+            logger.error(f"Trade error: {e}")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # =========================================================================
     # Wallet Balance Endpoints
     # =========================================================================
 

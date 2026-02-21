@@ -15,6 +15,7 @@ import { WatchlistPanel } from "@/components/watchlist/WatchlistPanel";
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ActivityLogPanel } from "@/components/log/ActivityLogPanel";
+import { MarketsPanel } from "@/components/markets";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSocket } from "@/hooks/useSocket";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -236,7 +237,7 @@ function Dashboard({ onExit }: { onExit: () => void }) {
   useEffect(() => {
     if (prefsLoaded.current) return;
     if (prefs.activeTab) {
-      const validTabs: Tab[] = ["summary", "copy", "arb", "positions", "watchlist", "fund", "log", "settings", "admin"];
+      const validTabs: Tab[] = ["summary", "markets", "copy", "arb", "positions", "watchlist", "fund", "log", "settings", "admin"];
       if (validTabs.includes(prefs.activeTab as Tab)) {
         setActiveTab(prefs.activeTab as Tab);
         prefsLoaded.current = true;
@@ -261,6 +262,7 @@ function Dashboard({ onExit }: { onExit: () => void }) {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
           {activeTab === "summary" && <ErrorBoundary label="Summary"><SummaryPanel /></ErrorBoundary>}
+          {activeTab === "markets" && <ErrorBoundary label="Markets"><MarketsPanel /></ErrorBoundary>}
           {activeTab === "copy" && <ErrorBoundary label="Copy Trading"><CopyPanel /></ErrorBoundary>}
           {activeTab === "arb" && <ErrorBoundary label="Arbitrage"><ArbPanel /></ErrorBoundary>}
           {activeTab === "positions" && <ErrorBoundary label="Positions"><PositionsPanel /></ErrorBoundary>}
