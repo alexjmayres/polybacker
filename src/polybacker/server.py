@@ -192,6 +192,53 @@ def create_app(settings: Settings) -> tuple[Flask, SocketIO]:
             "wireguard": bool(os.environ.get("WIREGUARD_CONFIG")),
         })
 
+    @app.route("/api/debug/test-data-api")
+    def debug_test_data_api():
+        """Test Data API connectivity from the server. No auth required."""
+        import traceback
+        address = request.args.get("address", "0x594edB9112f526Fa6A80b8F858A6379C8A2c1C11")
+        results = {}
+
+        # Test 1: Direct requests (no proxy)
+        try:
+            import requests as req
+            resp = req.get(
+                f"{settings.data_host}/trades",
+                params={"user": address.lower(), "limit": 2},
+                timeout=10,
+            )
+            results["direct"] = {"status": resp.status_code, "count": len(resp.json()) if resp.ok else resp.text[:200]}
+        except Exception as e:
+            results["direct"] = {"error": str(e)}
+
+        # Test 2: Via proxy session (how the bot actually calls it)
+        try:
+            import requests as req
+            s = req.Session()
+            proxy_url = settings.proxy_url
+            if proxy_url:
+                s.proxies = {"http": proxy_url, "https": proxy_url}
+                results["proxy_url"] = proxy_url
+            resp = s.get(
+                f"{settings.data_host}/trades",
+                params={"user": address.lower(), "limit": 2},
+                timeout=10,
+            )
+            results["via_proxy"] = {"status": resp.status_code, "count": len(resp.json()) if resp.ok else resp.text[:200]}
+        except Exception as e:
+            results["via_proxy"] = {"error": str(e), "traceback": traceback.format_exc()[-300:]}
+
+        # Test 3: Check what the client returns
+        try:
+            from polybacker.client import PolymarketClient
+            client = PolymarketClient(settings)
+            trades = client.get_trader_trades(address, limit=2)
+            results["client"] = {"count": len(trades), "first_title": trades[0].get("title", "")[:50] if trades else None}
+        except Exception as e:
+            results["client"] = {"error": str(e), "traceback": traceback.format_exc()[-300:]}
+
+        return jsonify(results)
+
     @app.route("/api/debug/trade-errors")
     def debug_trade_errors():
         """Show recent failed trades with error reasons — for debugging only."""
